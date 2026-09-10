@@ -1,0 +1,230 @@
+{
+  "_comment": "批改样本依据 eval/labeling_rubric.md 标注；先判对错，再判错因",
+  "retrieval": [
+    {
+      "query": "定积分有哪些计算方法",
+      "expect_any": [
+        "定积分",
+        "牛顿",
+        "华里士",
+        "分部积分",
+        "换元"
+      ]
+    },
+    {
+      "query": "分部积分选u的口诀",
+      "expect_any": [
+        "反对幂指三",
+        "反、对、幂、指、三",
+        "分部积分"
+      ]
+    },
+    {
+      "query": "等价无穷小替换常用公式",
+      "expect_any": [
+        "等价无穷小",
+        "sin x",
+        "cos"
+      ]
+    },
+    {
+      "query": "拉格朗日中值定理的条件和结论",
+      "expect_any": [
+        "拉格朗日",
+        "中值定理"
+      ]
+    },
+    {
+      "query": "泰勒展开求极限",
+      "expect_any": [
+        "泰勒",
+        "展开"
+      ]
+    },
+    {
+      "query": "反常积分怎么判断收敛",
+      "expect_any": [
+        "反常积分",
+        "收敛",
+        "瑕点"
+      ]
+    },
+    {
+      "query": "二重积分计算方法",
+      "expect_any": [
+        "二重积分"
+      ]
+    },
+    {
+      "query": "微分方程怎么求解",
+      "expect_any": [
+        "微分方程",
+        "特征方程"
+      ]
+    }
+  ],
+  "grading": [
+    {
+      "stem": "求极限 lim(x→0) (e^x - 1 - x) / x²",
+      "answer": "1/2",
+      "case": "完整正确",
+      "user_answer": "e^x 泰勒展开为 1 + x + x²/2 + o(x²)，分子 = x²/2 + o(x²)，除以 x² 取极限得 1/2。",
+      "expect_mistake": "无错误",
+      "expect_pass": true,
+      "rubric": "方法+中间结果+结论齐全"
+    },
+    {
+      "stem": "求极限 lim(x→0) (e^x - 1 - x) / x²",
+      "answer": "1/2",
+      "case": "简略但正确",
+      "user_answer": "用泰勒展开，e^x ≈ 1 + x + x²/2，代入得极限 1/2。",
+      "expect_mistake": "无错误",
+      "expect_pass": true,
+      "rubric": "方法与关键中间结果都在，细节可略"
+    },
+    {
+      "stem": "求极限 lim(x→0) (e^x - 1 - x) / x²",
+      "answer": "1/2",
+      "case": "洛必达正确",
+      "user_answer": "用洛必达法则两次：分子 e^x-1 → e^x → e^x，分母 x² → 2x → 2，故极限 = 1/2。",
+      "expect_mistake": "无错误",
+      "expect_pass": true,
+      "rubric": "方法合法、过程完整、结论正确"
+    },
+    {
+      "stem": "求极限 lim(x→0) (e^x - 1 - x) / x²",
+      "answer": "1/2",
+      "case": "方法误用",
+      "user_answer": "用分部积分，令 u=x, dv=e^x dx，得 x·e^x - e^x，代入得 1。",
+      "expect_mistake": "方法误用",
+      "expect_pass": false,
+      "rubric": "极限题错用积分方法，属方法误用（优先级最高）"
+    },
+    {
+      "stem": "求极限 lim(x→0) (e^x - 1 - x) / x²",
+      "answer": "1/2",
+      "case": "只有结论",
+      "user_answer": "答案是 1/2。",
+      "expect_mistake": "结论跳跃",
+      "expect_pass": false,
+      "rubric": "无方法无过程，只有结论"
+    },
+    {
+      "stem": "求极限 lim(x→0) (e^x - 1 - x) / x²",
+      "answer": "1/2",
+      "case": "计算错误",
+      "user_answer": "e^x 展开为 1 + x + x²/2，分子代入得 x²/2，除以 x² 得极限 1。",
+      "expect_mistake": "计算错误",
+      "expect_pass": false,
+      "rubric": "方法与展开正确，最后一步 x²/2 ÷ x² 算成 1（应为 1/2）"
+    },
+    {
+      "stem": "计算定积分 ∫₀¹ x·e^x dx",
+      "answer": "1",
+      "case": "完整正确",
+      "user_answer": "令 u=x, dv=e^x dx，则 du=dx, v=e^x；∫₀¹ = [x·e^x]₀¹ - ∫₀¹ e^x dx = e - (e-1) = 1。",
+      "expect_mistake": "无错误",
+      "expect_pass": true,
+      "rubric": "u/v 选取、代入、结论完整"
+    },
+    {
+      "stem": "计算定积分 ∫₀¹ x·e^x dx",
+      "answer": "1",
+      "case": "简略但正确",
+      "user_answer": "分部积分得 x·e^x - e^x，代入上下限 (1·e - e) - (0 - 1) = 1。",
+      "expect_mistake": "无错误",
+      "expect_pass": true,
+      "rubric": "方法+关键中间结果+结论齐全，u/v 细节可略"
+    },
+    {
+      "stem": "计算定积分 ∫₀¹ x·e^x dx",
+      "answer": "1",
+      "case": "符号错",
+      "user_answer": "分部积分得 x·e^x + e^x，代入上下限得 e + e = 2e。",
+      "expect_mistake": "计算错误",
+      "expect_pass": false,
+      "rubric": "方法为分部积分（正确），但符号运算错，属计算错误"
+    },
+    {
+      "stem": "计算定积分 ∫₀¹ x·e^x dx",
+      "answer": "1",
+      "case": "公式记错",
+      "user_answer": "由 ∫u dv = uv + ∫v du，令 u=x, dv=e^x dx，得 x·e^x + e^x，代入得 2e。",
+      "expect_mistake": "知识点不熟",
+      "expect_pass": false,
+      "rubric": "明确写错公式本身（+=应为−），属知识点不熟"
+    },
+    {
+      "stem": "计算定积分 ∫₀¹ x·e^x dx",
+      "answer": "1",
+      "case": "只有结论",
+      "user_answer": "1",
+      "expect_mistake": "结论跳跃",
+      "expect_pass": false,
+      "rubric": "只给答案"
+    },
+    {
+      "stem": "求函数 f(x) = x³ - 3x² + 2 的极值",
+      "answer": "极大值 f(0)=2，极小值 f(2)=-2",
+      "case": "完整正确",
+      "user_answer": "f'(x)=3x²-6x=3x(x-2)，驻点 x=0,2；f''(x)=6x-6，f''(0)=-6<0 故极大值 f(0)=2，f''(2)=6>0 故极小值 f(2)=-2。",
+      "expect_mistake": "无错误",
+      "expect_pass": true,
+      "rubric": "求导、判别、两个极值结论完整"
+    },
+    {
+      "stem": "求函数 f(x) = x³ - 3x² + 2 的极值",
+      "answer": "极大值 f(0)=2，极小值 f(2)=-2",
+      "case": "只有结论",
+      "user_answer": "极大值 2，极小值 -2。",
+      "expect_mistake": "结论跳跃",
+      "expect_pass": false,
+      "rubric": "无求导与判别过程"
+    },
+    {
+      "stem": "求函数 f(x) = x³ - 3x² + 2 的极值",
+      "answer": "极大值 f(0)=2，极小值 f(2)=-2",
+      "case": "漏结论",
+      "user_answer": "f'(x)=3x²-6x=0 得 x=0,2；f''(0)=-6<0，故极大值 f(0)=2。",
+      "expect_mistake": "结论跳跃",
+      "expect_pass": false,
+      "rubric": "只讨论了极大值，遗漏极小值结论，结论不完整"
+    },
+    {
+      "stem": "求函数 f(x) = x³ - 3x² + 2 的极值",
+      "answer": "极大值 f(0)=2，极小值 f(2)=-2",
+      "case": "算错",
+      "user_answer": "f'(x)=3x²-6x=3x(x-2)，驻点 x=0,2；f(0)=2，f(2)=8-12+2=0，故极小值 0。",
+      "expect_mistake": "计算错误",
+      "expect_pass": false,
+      "rubric": "方法正确，f(2) 计算错误（应为 -2）"
+    },
+    {
+      "stem": "计算不定积分 ∫ x·ln x dx",
+      "answer": "x²/2 · ln x - x²/4 + C",
+      "case": "完整正确",
+      "user_answer": "分部积分，u=ln x, dv=x dx，则 du=dx/x, v=x²/2；原式 = x²/2·ln x - ∫x/2 dx = x²/2·ln x - x²/4 + C。",
+      "expect_mistake": "无错误",
+      "expect_pass": true,
+      "rubric": "过程与常数 C 完整"
+    },
+    {
+      "stem": "计算不定积分 ∫ x·ln x dx",
+      "answer": "x²/2 · ln x - x²/4 + C",
+      "case": "漏常数C",
+      "user_answer": "分部积分得 x²/2·ln x - x²/4。",
+      "expect_mistake": "表述不规范",
+      "expect_pass": false,
+      "rubric": "结果正确但漏写积分常数 C，属表述不规范（答案不完整，判不通过）"
+    },
+    {
+      "stem": "计算不定积分 ∫ x·ln x dx",
+      "answer": "x²/2 · ln x - x²/4 + C",
+      "case": "算错",
+      "user_answer": "令 u=ln x, dv=x dx，得 v=x²/2；原式 = x²/2·ln x - ∫x²/2·(1/x) dx = x²/2·ln x - x²/2 + C。",
+      "expect_mistake": "计算错误",
+      "expect_pass": false,
+      "rubric": "方法正确，最后一项积分算错（应为 x²/4）"
+    }
+  ]
+}
