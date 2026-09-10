@@ -4,3 +4,8 @@ openai
 pymysql
 cryptography
 python-dotenv
+pdfplumber
+chromadb
+rank-bm25
+jieba
+langchain-text-splitters
