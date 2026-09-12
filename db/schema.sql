@@ -60,3 +60,15 @@ CREATE TABLE IF NOT EXISTS eval_annotations (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_task (task_type)
 ) ENGINE=InnoDB COMMENT='评测标注';
+
+-- 5. 复习计划 review_plans：规划 Agent 产出（支撑「学-练-测-评-规」闭环）
+CREATE TABLE IF NOT EXISTS review_plans (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL COMMENT '用户标识',
+  days INT NOT NULL COMMENT '计划天数',
+  summary TEXT COMMENT '学情诊断',
+  content LONGTEXT COMMENT '逐日计划明细（JSON）',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_user (user_id)
+) ENGINE=InnoDB COMMENT='复习计划';
+

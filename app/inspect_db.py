@@ -1,4 +1,4 @@
-"""研岸：查看 MySQL 里真实存在的数据。
+﻿"""研岸：查看 MySQL 里真实存在的数据。
 
 用法: python -m app.inspect_db
 """
@@ -28,11 +28,14 @@ def main():
          "SELECT user_id, knowledge_point, total_count, wrong_count, mastery FROM user_mastery ORDER BY mastery ASC")
     show("评测标注 eval_annotations",
          "SELECT * FROM eval_annotations LIMIT 5")
+    show("复习计划 review_plans（最近 3 条）",
+         "SELECT id, user_id, days, summary, created_at FROM review_plans ORDER BY id DESC LIMIT 3")
     show("各表行数统计",
          """SELECT (SELECT COUNT(*) FROM questions) AS 题目数,
                    (SELECT COUNT(*) FROM answer_records) AS 答题数,
                    (SELECT COUNT(*) FROM user_mastery) AS 学情记录数,
-                   (SELECT COUNT(*) FROM eval_annotations) AS 评测标注数""")
+                   (SELECT COUNT(*) FROM eval_annotations) AS 评测标注数,
+                   (SELECT COUNT(*) FROM review_plans) AS 复习计划数""")
 
 
 if __name__ == "__main__":
