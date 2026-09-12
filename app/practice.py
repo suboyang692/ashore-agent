@@ -1,4 +1,4 @@
-"""研岸 D2：练习闭环 —— 抽题 -> 作答 -> 判分 -> 落库 -> 学情统计。
+﻿"""研岸 D2：练习闭环 —— 抽题 -> 作答 -> 判分 -> 落库 -> 学情统计。
 
 用法: python -m app.practice
 说明: D2 只做客观题判分（选择/填空），主观题批改交给后续的批改 Agent。
@@ -9,7 +9,9 @@ from app.db import execute, query_all, query_one
 
 
 def normalize(text: str) -> str:
-    return re.sub(r"\s+", "", (text or "").strip().lower())
+    """判分归一化：去空白、转小写，并统一撇号（学生常打数学撇号 ′）。"""
+    t = re.sub(r"\s+", "", (text or "").strip().lower())
+    return t.replace("’", "'").replace("′", "'").replace("`", "'")
 
 
 def judge(question: dict, user_answer: str) -> int:
