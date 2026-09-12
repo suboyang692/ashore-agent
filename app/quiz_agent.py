@@ -236,6 +236,11 @@ def build_graph():
     return graph.compile()
 
 
+def generate_quiz(user_id: str = "default", knowledge_point: str = "") -> dict:
+    """可复用入口：命制变式题并入题库，返回结果 dict。"""
+    return build_graph().invoke({"user_id": user_id, "knowledge_point": knowledge_point})
+
+
 def main():
     graph = build_graph()
     user_id = input("输入用户标识（回车用 default）: ").strip() or "default"

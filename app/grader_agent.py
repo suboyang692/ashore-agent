@@ -1,4 +1,4 @@
-"""研岸 D4：批改 Agent —— LLM 批改主观解答题，错因归类并落库。
+﻿"""研岸 D4：批改 Agent —— LLM 批改主观解答题，错因归类并落库。
 
 图结构（LangGraph）:
     START -> grader 节点（结构化批改：得分/对错/错因/评语/建议）
@@ -115,6 +115,13 @@ def build_graph():
     graph.add_edge("grader", "persist")
     graph.add_edge("persist", END)
     return graph.compile()
+
+
+def grade_subjective(user_id: str, question: dict, user_answer: str) -> dict:
+    """可复用入口：批改一道主观题并落库，返回批改结果 dict。"""
+    return build_graph().invoke(
+        {"user_id": user_id, "question": question, "user_answer": user_answer}
+    )["grade"]
 
 
 def pick_subjective(user_id: str):

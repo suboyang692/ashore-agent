@@ -159,6 +159,11 @@ def build_graph():
     return graph.compile()
 
 
+def make_plan(user_id: str = "default", days: int = DEFAULT_DAYS) -> dict:
+    """可复用入口：生成复习计划并落库，返回结果 dict。"""
+    return build_graph().invoke({"user_id": user_id, "days": days})
+
+
 def main():
     user_id = input("输入用户标识（回车用 default）: ").strip() or "default"
     days = DEFAULT_DAYS

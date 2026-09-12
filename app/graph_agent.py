@@ -1,4 +1,4 @@
-"""研岸 D3：LangGraph 状态图编排 —— 答疑 Agent 从手写循环升级为图编排。
+﻿"""研岸 D3：LangGraph 状态图编排 —— 答疑 Agent 从手写循环升级为图编排。
 
 图结构（ReAct）:
     agent 节点（调模型，决定是否用工具）
@@ -88,6 +88,26 @@ def build_graph():
     return graph.compile()
 
 
+_GRAPH = None
+
+
+def _graph():
+    """进程内复用编译后的图，避免每次调用重复编译。"""
+    global _GRAPH
+    if _GRAPH is None:
+        _GRAPH = build_graph()
+    return _GRAPH
+
+
+def answer_question(question: str, history: list | None = None) -> dict:
+    """可复用入口：给定问题（可带历史消息），返回回答与更新后的消息历史。"""
+    messages = list(history or [])
+    messages.append(HumanMessage(content=question))
+    result = _graph().invoke({"messages": messages})
+    msgs = result["messages"]
+    return {"answer": msgs[-1].content, "messages": msgs}
+
+
 def main():
     graph = build_graph()
     print("研岸 LangGraph 答疑 Agent（输入 q 退出）")
@@ -98,10 +118,9 @@ def main():
             break
         if not question:
             continue
-        result = graph.invoke({"messages": history + [HumanMessage(content=question)]})
-        answer = result["messages"][-1].content
-        print("研岸:", answer)
-        history = result["messages"]
+        r = answer_question(question, history)
+        print("研岸:", r["answer"])
+        history = r["messages"]
 
 
 if __name__ == "__main__":

@@ -9,3 +9,6 @@ chromadb
 rank-bm25
 jieba
 langchain-text-splitters
+langgraph
+langchain-openai
+pytest
