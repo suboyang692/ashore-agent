@@ -10,5 +10,6 @@ rank-bm25
 jieba
 langchain-text-splitters
 langgraph
+redis
 langchain-openai
 pytest

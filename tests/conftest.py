@@ -10,11 +10,18 @@ if str(ROOT) not in sys.path:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_router_history():
-    """路由 Agent 的进程内多轮记忆不能跨用例串联（未导入则不强行导入）。"""
-    module = sys.modules.get("app.router_agent")
-    if module is not None:
-        module._HISTORY.clear()
+def _isolate_cache():
+    """单测一律走进程内后端：不打真实 Redis，也不会被上一个用例的键影响。
+
+    多轮会话记忆（D11 起）也在这里，所以顺带保证了用例之间互不串联。
+    """
+    from app import cache
+
+    def reset():
+        cache.set_backend(cache.memory_backend())
+        cache.memory_backend().flushdb()
+        cache.reset_stats()
+
+    reset()
     yield
-    if module is not None:
-        module._HISTORY.clear()
+    reset()

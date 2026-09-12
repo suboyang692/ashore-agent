@@ -7,7 +7,7 @@
 import json
 
 from app.llm import chat
-from app.retriever import hybrid_search
+from app.retriever import cached_hybrid_search
 
 SYSTEM_PROMPT = (
     "你是考研数学答疑助手。回答规则：\n"
@@ -37,7 +37,7 @@ MAX_TOOL_ROUNDS = 3
 
 def search_knowledge(query: str, top_k: int = 4) -> str:
     """工具实现：混合检索知识库，把片段拼成上下文返回给模型。"""
-    hits = hybrid_search(query, top_k=top_k)
+    hits = cached_hybrid_search(query, top_k=top_k)
     if not hits:
         return "知识库中未检索到相关内容。"
     blocks = []

@@ -1,4 +1,7 @@
-"""测试用的假对象：让单元测试不依赖真实大模型 / 网络。"""
+from app.cache import MemoryBackend
+
+
+"""测试用的假对象：让单元测试不依赖真实大模型 / 网络 / Redis。"""
 
 
 class StubRunnable:
@@ -35,3 +38,23 @@ class StubModel:
     def invoke(self, messages, **kwargs):
         self.invocations.append(messages)
         return self.text
+
+
+class FakeRedis(MemoryBackend):
+    """假装自己是 redis-py 客户端。
+
+    直接复用 MemoryBackend 的命令实现（两者语义本来就对齐），只把 name 改成 redis，
+    用来验证「真实客户端接上了」这条分支：后端判定、键名布局、TTL 都走正常路径。
+    真连服务器的联调在 tests/test_cache_integration.py（pytest -m integration）。
+    """
+
+    name = "redis"
+
+
+class FakeMessage:
+    """LangChain 消息的最小替身：路由 Agent 只用到 type / content / tool_calls。"""
+
+    def __init__(self, type, content, tool_calls=None):
+        self.type = type
+        self.content = content
+        self.tool_calls = tool_calls or []

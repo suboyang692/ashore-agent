@@ -1,0 +1,26 @@
+# 研岸 D11：本地 Redis（检索结果缓存 + 多轮会话记忆）
+#
+#   docker compose up -d redis      启动
+#   docker compose logs -f redis    看日志
+#   docker compose down             停止（数据留在 named volume 里）
+#
+# 起不来也没关系：app/cache.py 会检测不到连接并自动降级为进程内缓存，
+# 业务不中断，只是 GET /cache/stats 里的 backend 会显示 memory。
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: ashore-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - ashore-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  ashore-redis-data:

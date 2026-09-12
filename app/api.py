@@ -16,6 +16,7 @@
     GET  /profile/{user_id}   学情画像
     GET  /plan/{user_id}      最近一份复习计划
     GET  /kb/search           混合检索知识库
+    GET  /cache/stats         缓存后端 / 命中率 / 知识库版本号
 
 页面:
     GET  /ui/                 单页操作界面（web/index.html）
@@ -27,12 +28,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app import cache
 from app.db import query_all, query_one
 from app.grader_agent import grade_subjective
 from app.planner_agent import DEFAULT_DAYS, make_plan
 from app.practice import submit as submit_objective
 from app.quiz_agent import generate_quiz
-from app.retriever import hybrid_search
+from app.retriever import cached_hybrid_search
 from app.router_agent import public_question, route
 
 app = FastAPI(
@@ -79,7 +81,8 @@ def root():
         "ui": "/ui/",
         "endpoints": [
             "/chat", "/quiz", "/plan", "/questions/next",
-            "/submit", "/profile/{user_id}", "/plan/{user_id}", "/kb/search", "/health",
+            "/submit", "/profile/{user_id}", "/plan/{user_id}", "/kb/search",
+            "/cache/stats", "/health",
         ],
     }
 
@@ -205,10 +208,16 @@ def latest_plan(user_id: str):
     }
 
 
+@app.get("/cache/stats")
+def cache_stats():
+    """缓存后端与命中率。backend 是 memory 就说明 Redis 没连上、已自动降级。"""
+    return cache.stats()
+
+
 @app.get("/kb/search")
 def kb_search(q: str, top_k: int = 4):
     """混合检索知识库（向量 + BM25，RRF 融合）。"""
-    hits = hybrid_search(q, top_k=top_k)
+    hits = cached_hybrid_search(q, top_k=top_k)
     return {"query": q, "count": len(hits), "hits": hits}
 
 

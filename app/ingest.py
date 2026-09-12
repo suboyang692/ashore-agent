@@ -1,5 +1,7 @@
 """研岸 D2-B：知识库入库 —— 文档 -> 切片 -> 向量化 -> ChromaDB。
 
+D11 追加：入库成功后把 Redis 里的检索缓存版本号 +1，避免用户拿到已作废的切片。
+
 支持格式: .pdf / .md / .txt
 用法:
     python -m app.ingest                  # 入库 knowledge/ 下全部文件
@@ -12,6 +14,7 @@ from pathlib import Path
 import chromadb
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from app import cache
 from app.config import BASE_DIR
 from app.embedding import embed_texts
 
@@ -82,6 +85,9 @@ def main():
         total += ingest_file(p)
     col = get_collection()
     print(f"\n完成：本次 {total} 个切片，知识库当前共 {col.count()} 个切片")
+    if total:
+        # 版本号 +1：旧版本的检索缓存再也命中不到，由 TTL 自然回收（不用 KEYS 扫删）
+        print(f"检索缓存版本号 -> {cache.bump_kb_version()}（旧缓存已失效）")
 
 
 if __name__ == "__main__":

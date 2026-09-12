@@ -1,5 +1,8 @@
 """研岸 D2-B：混合检索 —— 向量检索 + BM25，用 RRF 按排名融合。
 
+D11 追加：cached_hybrid_search() 在 hybrid_search() 外面套了一层 Redis 缓存
+（本文件的 hybrid_search 保持纯函数，评测脚本仍然每次真检索）。
+
 RRF(Reciprocal Rank Fusion): score(d) = Σ 1/(k + rank(d))，k 取 60（论文默认）。
 好处: 两种检索各自擅长的结果都能进入最终 top-k，不会被一方淹没。
 """
@@ -8,6 +11,7 @@ import sys
 import jieba
 from rank_bm25 import BM25Okapi
 
+from app import cache
 from app.embedding import embed_query
 from app.ingest import get_collection
 
@@ -66,6 +70,22 @@ def hybrid_search(query: str, top_k: int = 5):
         item["rrf_score"] = round(scores[key], 5)
         out.append(item)
     return out
+
+
+def cached_hybrid_search(query: str, top_k: int = 5):
+    """带 Redis 缓存的混合检索。
+
+    同一查询在知识库未变更（kb_version 未变）时直接命中缓存；
+    空结果不写缓存，否则「知识库还没入库」会被固化下来。
+    """
+    key = cache.retrieval_key(query, top_k)
+    cached = cache.get_json(key)
+    if cached is not None:
+        return cached
+    hits = hybrid_search(query, top_k)
+    if hits:
+        cache.set_json(key, hits, ttl=cache.CACHE_TTL)
+    return hits
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from app.config import DASHSCOPE_API_KEY, LLM_BASE_URL, LLM_MODEL
-from app.retriever import hybrid_search
+from app.retriever import cached_hybrid_search
 
 SYSTEM_PROMPT = (
     "你是考研数学答疑助手。回答规则：\n"
@@ -33,7 +33,7 @@ SYSTEM_PROMPT = (
 @tool
 def search_knowledge(query: str) -> str:
     """检索考研知识库，返回与问题最相关的讲义片段。回答知识点或方法类问题前必须调用。"""
-    hits = hybrid_search(query, top_k=4)
+    hits = cached_hybrid_search(query, top_k=4)
     if not hits:
         return "知识库中未检索到相关内容。"
     blocks = []

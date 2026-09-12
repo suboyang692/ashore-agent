@@ -3,7 +3,7 @@
 设计要点：
 1. 带 question_id 的请求直接走批改（确定性规则，不过模型），避免「提交作答」被误判成提问；
 2. 其余消息交模型分类成 qa / quiz / grade / plan / chat 五类；
-3. qa 走答疑 Agent（带进程内多轮记忆），quiz 走薄弱点出题，plan 走学情规划，
+3. qa 走答疑 Agent（多轮记忆存 Redis 并带 TTL，Redis 不可用时自动落回进程内），
    grade 且未指定题目时先返回一道待批改的解答题。
 
 用法: python -m app.router_agent
@@ -11,8 +11,10 @@
 import sys
 from typing import Literal
 
+from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel, Field
 
+from app import cache
 from app.db import query_one
 from app.grader_agent import grade_subjective, pick_subjective
 from app.graph_agent import _model, answer_question
@@ -45,12 +47,47 @@ class RouteDecision(BaseModel):
     reply: str = Field(default="", description="仅 chat 意图使用的直接回复")
 
 
-# 进程内多轮记忆（重启即清空；后续可替换为 Redis）
-_HISTORY: dict = {}
+def _pick_turns(messages: list) -> list:
+    """从完整消息流里挑出要持久化的「对话轮次」。
+
+    只留 Human / 最终回答两种，工具调用产生的中间消息（带 tool_calls 的 AI 消息
+    和 Tool 消息）一律丢弃，原因有二：
+    1. 它们带着整段检索原文，体积是对话本身的十倍量级，存 Redis 很浪费；
+    2. 这类消息必须成对出现（tool_calls 与 tool_call_id 要配对），一旦按条数
+       截断就会出现半截配对，下一轮请求会被模型接口直接拒绝。
+    """
+    turns = []
+    for m in messages:
+        kind = getattr(m, "type", "")
+        if kind not in ("human", "ai"):
+            continue
+        if kind == "ai" and getattr(m, "tool_calls", None):
+            continue                      # 中间态，不带进下一轮
+        content = getattr(m, "content", "")
+        if isinstance(content, str) and content:
+            turns.append({"role": kind, "content": content})
+    return turns
+
+
+def _history(user_id: str) -> list:
+    """读取该用户的多轮记忆并还原成 LangChain 消息（Redis 优先，降级时读进程内）。"""
+    restored = []
+    for item in cache.session_load(user_id, limit=MAX_HISTORY):
+        if not isinstance(item, dict):
+            continue
+        role, content = item.get("role"), item.get("content")
+        if not isinstance(content, str):
+            continue
+        if role == "human":
+            restored.append(HumanMessage(content=content))
+        elif role == "ai":
+            restored.append(AIMessage(content=content))
+    return restored
 
 
 def _remember(user_id: str, messages: list) -> None:
-    _HISTORY[user_id] = messages[-MAX_HISTORY:]
+    """整段覆盖写入。外置存储后，uvicorn 多 worker 之间也能共享同一份上下文。"""
+    cache.session_save(user_id, _pick_turns(messages), limit=MAX_HISTORY)
 
 
 def classify(message: str) -> RouteDecision:
@@ -96,7 +133,7 @@ def route(user_id: str = "default", message: str = "", question_id: int | None =
     print(f"  [router] 意图={decision.intent} 知识点={decision.knowledge_point or '-'}")
 
     if decision.intent == "qa":
-        r = answer_question(message, _HISTORY.get(user_id))
+        r = answer_question(message, _history(user_id))
         _remember(user_id, r["messages"])
         return {"intent": "qa", "reply": r["answer"], "data": {}}
 
