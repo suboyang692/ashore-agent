@@ -39,15 +39,19 @@ def clean_answer(text: str) -> str:
     return t
 
 
+_SELF_TALK = ["此前分析有误", "之前的分析有误", "重新审视", "我刚才", "更正："]
+_SELF_TALK_HEAD = re.compile(r"^(此前分析有误|之前的分析有误|重新审视|我刚才|更正)[，,。：:、\s]*")
+
+
 def clean_analysis(text: str) -> str:
-    """清洗解析：去掉自我纠错痕迹。"""
+    """清洗解析：丢掉写错的尝试，并从正确推导处开始，不留自我纠错痕迹。"""
     t = (text or "").strip()
-    for bad in ["此前分析有误", "之前的分析有误", "重新审视", "我刚才", "更正："]:
+    for bad in _SELF_TALK:
         idx = t.find(bad)
         if idx > 0:
             t = t[idx:]
             break
-    return t
+    return _SELF_TALK_HEAD.sub("", t).strip()
 
 _OPTION_RE = re.compile(r"^\s*([A-Da-d])\s*[.、．:：)）]\s*(.+)$")
 _BLANK_EQ = re.compile(r"([A-Za-zα-ωΑ-Ω][^=，。；,;:\n]*)=\s*[_＿]{3,}")

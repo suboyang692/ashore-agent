@@ -16,10 +16,15 @@
     GET  /profile/{user_id}   学情画像
     GET  /plan/{user_id}      最近一份复习计划
     GET  /kb/search           混合检索知识库
+
+页面:
+    GET  /ui/                 单页操作界面（web/index.html）
 """
 import json
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.db import query_all, query_one
@@ -35,6 +40,11 @@ app = FastAPI(
     version="1.0.0",
     description="考研数学多智能体备考助手：答疑 / 出题 / 批改 / 规划",
 )
+
+
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+if WEB_DIR.is_dir():
+    app.mount("/ui", StaticFiles(directory=str(WEB_DIR), html=True), name="ui")
 
 
 class ChatRequest(BaseModel):
@@ -66,6 +76,7 @@ def root():
         "name": "研岸 Ashore API",
         "version": app.version,
         "docs": "/docs",
+        "ui": "/ui/",
         "endpoints": [
             "/chat", "/quiz", "/plan", "/questions/next",
             "/submit", "/profile/{user_id}", "/plan/{user_id}", "/kb/search", "/health",

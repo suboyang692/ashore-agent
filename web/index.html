@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:,">
+<title>研岸 Ashore · 考研数学多智能体备考助手</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css"
+      onerror="window.__noKatex=1">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"
+        onerror="window.__noKatex=1"></script>
+<style>
+:root{
+  --bg:#080d1a; --panel:rgba(21,30,50,.72); --panel-solid:#141d31;
+  --line:rgba(122,152,202,.16); --line-strong:rgba(122,152,202,.3);
+  --fg:#e9eefb; --mut:#93a3c2;
+  --acc:#4da3ff; --acc-2:#8b6cff;
+  --ok:#34d399; --err:#f87171;
+  --radius:14px; --shadow:0 12px 34px -16px rgba(0,0,0,.85);
+}
+*{box-sizing:border-box}
+body{
+  margin:0;min-height:100vh;color:var(--fg);
+  font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+  background:
+    radial-gradient(1100px 620px at 10% -12%, rgba(77,163,255,.16), transparent 62%),
+    radial-gradient(900px 520px at 100% -4%, rgba(139,108,255,.15), transparent 58%),
+    var(--bg);
+  background-attachment:fixed;
+}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:rgba(122,152,202,.28);border-radius:999px;
+  border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(122,152,202,.45);background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+
+.wrap{width:100%;max-width:1020px;margin:0 auto;display:flex;align-items:center;gap:14px}
+
+header{position:sticky;top:0;z-index:20;padding:13px 26px;border-bottom:1px solid var(--line);
+  background:rgba(8,13,26,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.logo{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;
+  font-size:17px;font-weight:700;color:#06101f;
+  background:linear-gradient(135deg,var(--acc),var(--acc-2));
+  box-shadow:0 8px 22px -8px rgba(77,163,255,.9)}
+.titles h1{font-size:17px;margin:0;letter-spacing:.4px}
+.sub{color:var(--mut);font-size:12.5px;margin-top:2px}
+.uid{margin-left:auto;flex:none;display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--mut);
+  background:rgba(255,255,255,.04);border:1px solid var(--line);padding:6px 12px;border-radius:999px}
+.uid input{width:92px;background:transparent;border:0;padding:0;font-size:12.5px;color:var(--fg)}
+.uid input:focus{outline:none;box-shadow:none;background:transparent}
+
+nav{position:sticky;top:65px;z-index:19;padding:9px 26px;border-bottom:1px solid var(--line);
+  background:rgba(8,13,26,.7);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+nav .wrap{gap:6px;flex-wrap:wrap}
+nav button{background:transparent;border:1px solid transparent;color:var(--mut);
+  padding:8px 18px;border-radius:999px;font-size:13.5px;font-weight:500;transition:.16s}
+nav button:hover:not(:disabled):not(.on){color:var(--fg);background:rgba(255,255,255,.06);border-color:transparent}
+nav button.on{color:#06101f;background:linear-gradient(135deg,var(--acc),#7cc0ff);border-color:transparent;
+  box-shadow:0 8px 20px -10px rgba(77,163,255,.95)}
+nav button.on:hover{filter:brightness(1.08)}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+::selection{background:rgba(77,163,255,.35)}
+
+main{padding:26px 26px 80px;max-width:1020px;margin:0 auto}
+.panel{display:none}
+.panel.on{display:block;animation:rise .22s ease both}
+.panel-head{margin-bottom:16px}
+.panel-head h2{display:flex;align-items:center;gap:9px;font-size:15.5px;margin:0 0 7px;letter-spacing:.3px}
+.panel-head h2::before{content:'';width:4px;height:15px;border-radius:2px;
+  background:linear-gradient(180deg,var(--acc),var(--acc-2))}
+.hint{color:var(--mut);font-size:13px;line-height:1.7;margin:0}
+
+button{font:inherit;cursor:pointer;border-radius:10px;padding:9px 18px;
+  border:1px solid var(--line-strong);background:rgba(255,255,255,.05);color:var(--fg);transition:.16s}
+button:hover:not(:disabled){background:rgba(255,255,255,.1)}
+button:disabled{opacity:.4;cursor:not-allowed}
+#qa-send,#quiz-go,#practice-get,#practice-send,#plan-go,#profile-go{
+  border-color:transparent;font-weight:600;color:#06101f;
+  background:linear-gradient(135deg,var(--acc),var(--acc-2));
+  box-shadow:0 10px 24px -12px rgba(77,163,255,.95)}
+#qa-send:hover:not(:disabled),#quiz-go:hover:not(:disabled),#practice-get:hover:not(:disabled),
+#practice-send:hover:not(:disabled),#plan-go:hover:not(:disabled),#profile-go:hover:not(:disabled){
+  filter:brightness(1.09)}
+#practice-send:disabled{background:rgba(255,255,255,.06);color:var(--mut);box-shadow:none}
+
+input,textarea{font:inherit;width:100%;color:var(--fg);background:rgba(255,255,255,.04);
+  border:1px solid var(--line-strong);border-radius:10px;padding:11px 14px;transition:.16s}
+input::placeholder,textarea::placeholder{color:#6b7d9e}
+input:focus,textarea:focus{outline:none;border-color:var(--acc);background:rgba(255,255,255,.06);
+  box-shadow:0 0 0 3px rgba(77,163,255,.16)}
+textarea{margin-top:14px;min-height:124px;resize:vertical;line-height:1.7}
+.row{display:flex;gap:10px;margin-top:14px}
+.row input{flex:1}
+#plan-days{max-width:110px}
+
+.log{height:56vh;min-height:330px;overflow:auto;border:1px solid var(--line);border-radius:var(--radius);
+  padding:18px;background:linear-gradient(180deg,rgba(14,21,38,.9),rgba(9,14,26,.9));box-shadow:var(--shadow)}
+.log:empty::after{content:'在上方输入考研数学问题，例如「定积分怎么算？」；回答会标注引用来源。';
+  color:var(--mut);font-size:13.5px}
+.msg{position:relative;margin:15px 0;display:flex;gap:11px;align-items:flex-start;animation:rise .22s ease both}
+.msg::before{content:'';flex:none;width:30px;height:30px;border-radius:10px;display:grid;place-items:center;
+  font-size:12.5px;font-weight:700}
+.msg.bot::before{content:'研';color:var(--acc);
+  background:linear-gradient(135deg,rgba(77,163,255,.22),rgba(139,108,255,.22));
+  border:1px solid var(--line-strong)}
+.msg.me{flex-direction:row-reverse}
+.msg.me::before{content:'我';color:var(--mut);background:rgba(255,255,255,.07);border:1px solid var(--line)}
+.msg .body{line-height:1.92;background:var(--panel-solid);border:1px solid var(--line);
+  padding:12px 16px;border-radius:12px;max-width:min(88%,760px);overflow-x:auto}
+.msg.bot .body{border-top-left-radius:4px}
+.msg.me .body{border-color:rgba(77,163,255,.34);border-top-right-radius:4px;
+  background:linear-gradient(135deg,rgba(77,163,255,.2),rgba(139,108,255,.16))}
+.tag{position:absolute;top:-7px;left:49px;z-index:1;font-size:11px;line-height:1.7;color:var(--acc);
+  border:1px solid rgba(77,163,255,.5);border-radius:999px;padding:0 8px;background:#101a2e}
+
+.card{position:relative;border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:12px 0;
+  background:var(--panel-solid);box-shadow:var(--shadow);overflow-x:auto;animation:rise .22s ease both}
+.card b{display:block;margin-bottom:8px;font-size:12px;font-weight:600;letter-spacing:.5px;color:var(--acc)}
+.card.day{border-left:2px solid rgba(77,163,255,.45)}
+.stem,.ta,.kps,.tasks,.reason{line-height:1.9}
+.stem{color:#dbe6fb}
+.ta,.kps,.tasks{color:#c9d7f0}
+.reason{color:var(--mut);font-size:13px;margin-top:5px;padding-left:11px;
+  border-left:2px solid var(--line-strong)}
+.dayhead{font-weight:600;margin-bottom:8px;color:#dce7ff}
+.pill{display:inline-block;font-size:11.5px;color:var(--mut);border:1px solid var(--line);
+  border-radius:999px;padding:2px 10px;margin:0 6px 8px 0;background:rgba(255,255,255,.03)}
+.muted{color:var(--mut)}
+.ok{color:var(--ok)}
+.err{color:var(--err)}
+.loading{display:flex;align-items:center;gap:9px;color:var(--mut);font-size:13.5px;margin:12px 0}
+.loading::before{content:'';width:13px;height:13px;flex:none;border-radius:50%;
+  border:2px solid rgba(77,163,255,.25);border-top-color:var(--acc);animation:spin .7s linear infinite}
+
+.barrow{display:flex;align-items:center;gap:12px;margin:11px 0}
+.barrow .kp{width:152px;font-size:13.5px;text-align:right;color:var(--mut);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.barrow .bar{flex:1;height:10px;border-radius:999px;overflow:hidden;
+  background:rgba(255,255,255,.06);border:1px solid var(--line)}
+.barrow .bar i{display:block;height:100%;width:0;border-radius:999px;transition:width .55s ease}
+.barrow .pct{width:190px;font-size:12px;color:var(--mut)}
+
+#quiz-result:empty::after{content:'还没有出题，点「出题」开始。';color:var(--mut);font-size:13.5px}
+#plan-result:empty::after{content:'还没有计划，点「生成复习计划」开始。';color:var(--mut);font-size:13.5px}
+#practice-q:empty::after{content:'点「取一题」抽一道你还没做过的题。';color:var(--mut);font-size:13.5px}
+#profile-box:empty::after{content:'点「刷新学情」加载练习记录。';color:var(--mut);font-size:13.5px}
+
+.body strong,.ta strong,.stem strong,.kps strong,.tasks strong{color:#fff;font-weight:650}
+.body code,.ta code,.stem code{background:rgba(0,0,0,.35);border:1px solid var(--line);
+  border-radius:5px;padding:1px 5px;font-size:.94em}
+.md-h{font-weight:700;color:#fff;margin:.6em 0 .2em}
+.src{color:var(--mut);font-size:12.5px;margin-top:9px;padding-top:8px;border-top:1px dashed var(--line)}
+.katex{font-size:1.03em}
+.katex-display{margin:.45em 0}
+a{color:var(--acc)}
+
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+@media (max-width:760px){
+  header,nav{padding-left:16px;padding-right:16px}
+  main{padding:20px 16px 70px}
+  .wrap{flex-wrap:wrap}
+  .uid{margin-left:0}
+  nav{top:auto;position:static}
+  .barrow .kp{width:92px;font-size:12.5px}
+  .barrow .pct{width:auto;font-size:11.5px}
+  .msg .body{max-width:100%}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="logo">研</div>
+    <div class="titles">
+      <h1>研岸 Ashore</h1>
+      <div class="sub">考研数学多智能体备考助手 · 答疑 / 出题 / 批改 / 规划</div>
+    </div>
+    <label class="uid">用户 <input id="uid" value="default" size="10"></label>
+  </div>
+</header>
+
+<nav id="tabs">
+  <div class="wrap">
+    <button data-tab="qa" class="on">答疑</button>
+    <button data-tab="quiz">出题</button>
+    <button data-tab="practice">练习</button>
+    <button data-tab="plan">规划</button>
+    <button data-tab="profile">学情</button>
+  </div>
+</nav>
+
+<main>
+  <section id="tab-qa" class="panel on">
+    <div class="panel-head">
+      <h2>答疑</h2>
+      <p class="hint">直接提问，路由 Agent 会判断意图并分发；回答基于讲义检索，附来源片段。</p>
+    </div>
+    <div id="qa-log" class="log"></div>
+    <div class="row">
+      <input id="qa-input" placeholder="例如：定积分怎么算？（Enter 发送）">
+      <button id="qa-send">发送</button>
+    </div>
+  </section>
+
+  <section id="tab-quiz" class="panel">
+    <div class="panel-head">
+      <h2>出题</h2>
+      <p class="hint">留空知识点时，出题 Agent 会按学情画像挑最薄弱的那一个来出变式题。</p>
+    </div>
+    <div class="row">
+      <input id="quiz-kp" placeholder="知识点（可留空）">
+      <button id="quiz-go">出题</button>
+    </div>
+    <div id="quiz-result"></div>
+  </section>
+
+  <section id="tab-practice" class="panel">
+    <div class="panel-head">
+      <h2>练习</h2>
+      <p class="hint">取一道你还没做过的题，客观题走精确判分，解答题走批改 Agent。</p>
+    </div>
+    <div class="row"><button id="practice-get">取一题</button></div>
+    <div id="practice-q"></div>
+    <textarea id="practice-answer" placeholder="在此作答：选择题填字母，解答题写完整过程"></textarea>
+    <div class="row"><button id="practice-send" disabled>提交批改</button></div>
+    <div id="practice-result"></div>
+  </section>
+
+  <section id="tab-plan" class="panel">
+    <div class="panel-head">
+      <h2>规划</h2>
+      <p class="hint">规划 Agent 读取学情画像与题库缺口，排出逐日计划并落库。</p>
+    </div>
+    <div class="row">
+      <input id="plan-days" type="number" min="1" max="30" value="7">
+      <button id="plan-go">生成复习计划</button>
+    </div>
+    <div id="plan-result"></div>
+  </section>
+
+  <section id="tab-profile" class="panel">
+    <div class="panel-head">
+      <h2>学情</h2>
+      <p class="hint">每次作答都会回写学情画像，掌握度由「练几次 / 错几次」实时更新。</p>
+    </div>
+    <div class="row"><button id="profile-go">刷新学情</button></div>
+    <div id="profile-weak" class="hint" style="margin-top:14px"></div>
+    <div id="profile-box"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const uid = () => ($('uid').value.trim() || 'default');
+
+async function api(path, body) {
+  const opt = {method: body ? 'POST' : 'GET'};
+  if (body) { opt.headers = {'Content-Type': 'application/json'}; opt.body = JSON.stringify(body); }
+  const res = await fetch(path, opt);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || ('HTTP ' + res.status));
+  return data;
+}
+
+/* ---------- 文本 + 公式渲染 ----------
+   不依赖 auto-render：它只在单个文本节点内匹配公式，跨行的 $$ 块匹配不到。
+   这里自己把内容切成「普通文本 / 公式」片段：文本转义后按 \n 转 <br>，
+   公式交给 katex.render；KaTeX 未加载时原样显示源码。 */
+/* --- mathify:start 这段被 tests/js/test_render.js 抽取测试，改动后请跑 node tests/js/test_render.js --- */
+const MATH_DELIMS = [
+  {open: '$$', close: '$$', display: true},
+  {open: '\\[', close: '\\]', display: true},
+  {open: '\\(', close: '\\)', display: false},
+  {open: '$', close: '$', display: false}
+];
+
+const INLINE_RE = /(\*\*[^*\n]+\*\*|`[^`\n]+`)/g;
+
+function appendInline(parent, line) {
+  // 加粗标记如果跨了公式片段就会落单（例如 **$F(x)$ 是原函数**），落单时直接丢弃标记避免露出星号
+  const markers = (line.match(/\*\*/g) || []).length;
+  if (markers % 2 === 1) line = line.split('**').join('');
+  let last = 0;
+  let m;
+  INLINE_RE.lastIndex = 0;
+  while ((m = INLINE_RE.exec(line)) !== null) {
+    if (m.index > last) parent.appendChild(document.createTextNode(line.slice(last, m.index)));
+    const tok = m[0];
+    const isBold = tok.slice(0, 2) === '**';
+    const node = document.createElement(isBold ? 'strong' : 'code');
+    node.textContent = isBold ? tok.slice(2, -2) : tok.slice(1, -1);
+    parent.appendChild(node);
+    last = m.index + tok.length;
+  }
+  if (last < line.length) parent.appendChild(document.createTextNode(line.slice(last)));
+}
+
+function appendBlock(parent, className) {
+  const div = document.createElement('div');
+  div.className = className;
+  parent.appendChild(div);
+  return div;
+}
+
+function appendPlainText(parent, text) {
+  const lines = String(text).split('\n');
+  let fresh = true;               // 块级元素自带换行，后面不需要再补 <br>
+  lines.forEach(line => {
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) { appendInline(appendBlock(parent, 'md-h'), heading[2]); fresh = true; return; }
+    if (/^\s*来源[:：]/.test(line)) { appendInline(appendBlock(parent, 'src'), line.trim()); fresh = true; return; }
+    if (!fresh) parent.appendChild(document.createElement('br'));
+    appendInline(parent, line);
+    fresh = false;
+  });
+}
+
+function makeMathNode(tex, display) {
+  const span = document.createElement('span');
+  if (window.katex && window.katex.render && !window.__noKatex) {
+    try {
+      window.katex.render(tex, span, {display: display, throwOnError: false});
+      return span;
+    } catch (e) { /* 落到下面原样显示 */ }
+  }
+  span.textContent = display ? ('$$' + tex + '$$') : ('$' + tex + '$');
+  return span;
+}
+
+function setRichText(el, text) {
+  if (!el) return;
+  el.textContent = '';
+  const src = String(text === null || text === undefined ? '' : text);
+  let buf = '';
+  let i = 0;
+  while (i < src.length) {
+    let hit = null;
+    for (const d of MATH_DELIMS) {
+      if (!src.startsWith(d.open, i)) continue;
+      const end = src.indexOf(d.close, i + d.open.length);
+      if (end === -1) continue;
+      const tex = src.slice(i + d.open.length, end).trim();
+      if (!tex) continue;
+      // 单个 $ 会和「5$」这类货币符号混淆：要求开 $ 之后、闭 $ 之前都不是空白
+      if (d.open === '$') {
+        const afterOpen = src[i + 1];
+        if (!afterOpen || afterOpen === ' ' || afterOpen === '\n') continue;
+        if (end > 0 && (src[end - 1] === ' ' || src[end - 1] === '\n')) continue;
+      }
+      hit = {d: d, tex: tex, next: end + d.close.length};
+      break;
+    }
+    if (hit) {
+      appendPlainText(el, buf);
+      buf = '';
+      el.appendChild(makeMathNode(hit.tex, hit.d.display));
+      i = hit.next;
+    } else {
+      buf += src[i];
+      i += 1;
+    }
+  }
+  appendPlainText(el, buf);
+}
+/* --- mathify:end --- */
+
+document.querySelectorAll('#tabs button').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('#tabs button').forEach(x => x.classList.remove('on'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('on'));
+    btn.classList.add('on');
+    $('tab-' + btn.dataset.tab).classList.add('on');
+    if (btn.dataset.tab === 'profile') loadProfile();
+  };
+});
+
+/* ---------- 答疑 ---------- */
+const log = $('qa-log');
+function push(cls, text) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ' + cls;
+  const tag = document.createElement('span');
+  tag.className = 'tag'; tag.hidden = true;
+  const body = document.createElement('div');
+  body.className = 'body';
+  setRichText(body, text);
+  wrap.append(tag, body);
+  log.appendChild(wrap);
+  log.scrollTop = log.scrollHeight;
+  return {tag: tag, body: body};
+}
+
+async function ask() {
+  const q = $('qa-input').value.trim();
+  if (!q) return;
+  $('qa-input').value = '';
+  push('me', q);
+  const box = push('bot', '检索与思考中，约 10-30 秒…');
+  try {
+    const r = await api('/chat', {user_id: uid(), message: q});
+    setRichText(box.body, r.reply);
+    box.tag.textContent = r.intent;
+    box.tag.hidden = false;
+    log.scrollTop = log.scrollHeight;
+  } catch (e) {
+    setRichText(box.body, '出错了：' + e.message);
+  }
+}
+$('qa-send').onclick = ask;
+$('qa-input').addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+
+/* ---------- 出题 ---------- */
+$('quiz-go').onclick = async () => {
+  const box = $('quiz-result');
+  box.innerHTML = '<p class="loading">命制中，约 10-30 秒…</p>';
+  try {
+    const r = await api('/quiz', {user_id: uid(), knowledge_point: $('quiz-kp').value.trim()});
+    if (!r.questions.length) { box.innerHTML = '<p class="muted">本次没有通过校验的题目入库。</p>'; return; }
+    box.innerHTML = '<p class="ok">已入库 ' + r.saved + ' 道 · 知识点：' + r.knowledge_point + '</p>' +
+      r.questions.map(() => '<div class="card"><span class="pill"></span><div class="stem"></div></div>').join('');
+    const cards = box.querySelectorAll('.card');
+    r.questions.forEach((q, i) => {
+      cards[i].querySelector('.pill').textContent = q.question_type + ' · 难度 ' + q.difficulty;
+      setRichText(cards[i].querySelector('.stem'), q.stem);
+    });
+  } catch (e) { box.innerHTML = '<p class="err">' + e.message + '</p>'; }
+};
+
+/* ---------- 练习 ---------- */
+let current = null;
+$('practice-get').onclick = async () => {
+  const box = $('practice-q');
+  box.innerHTML = '<p class="loading">取题中…</p>';
+  try {
+    const q = await api('/questions/next?user_id=' + encodeURIComponent(uid()));
+    current = q;
+    box.innerHTML = '<div class="card"><span class="pill"></span><span class="pill"></span><div class="stem"></div></div>';
+    const pills = box.querySelectorAll('.pill');
+    pills[0].textContent = q.question_type;
+    pills[1].textContent = q.knowledge_point;
+    setRichText(box.querySelector('.stem'), q.stem);
+    $('practice-result').innerHTML = '';
+    $('practice-send').disabled = false;
+  } catch (e) { box.innerHTML = '<p class="err">' + e.message + '</p>'; }
+};
+
+$('practice-send').onclick = async () => {
+  if (!current) return;
+  const ans = $('practice-answer').value.trim();
+  if (!ans) return;
+  const out = $('practice-result');
+  out.innerHTML = '<p class="loading">判分中…</p>';
+  try {
+    const r = await api('/submit', {user_id: uid(), question_id: current.id, answer: ans});
+    let head = '';
+    if (r.type === 'objective') {
+      head = '<p class="' + (r.correct ? 'ok' : 'err') + '">' + (r.correct ? '正确 ✓' : '错误 ✗') + '</p>';
+    } else {
+      head = '<p class="ok">得分 ' + r.score + ' · 错因：' + r.mistake_type + '</p>';
+    }
+    const blocks = [['标准答案', r.standard_answer]];
+    if (r.comment) blocks.push(['评语', r.comment]);
+    if (r.suggestion) blocks.push(['建议', r.suggestion]);
+    blocks.push(['解析', r.analysis || '']);
+    out.innerHTML = head + blocks.map(() =>
+      '<div class="card"><b></b><div class="ta"></div></div>').join('');
+    out.querySelectorAll('.card').forEach((el, i) => {
+      el.querySelector('b').textContent = blocks[i][0];
+      setRichText(el.querySelector('.ta'), blocks[i][1]);
+    });
+    current = null;
+    $('practice-send').disabled = true;
+    $('practice-answer').value = '';
+  } catch (e) { out.innerHTML = '<p class="err">' + e.message + '</p>'; }
+};
+
+/* ---------- 规划 ---------- */
+$('plan-go').onclick = async () => {
+  const box = $('plan-result');
+  box.innerHTML = '<p class="loading">规划中，约 10-30 秒…</p>';
+  try {
+    const days = parseInt($('plan-days').value, 10) || 7;
+    const r = await api('/plan', {user_id: uid(), days: days});
+    let html = '<div class="card"><b>学情诊断</b><div class="summary"></div></div>';
+    r.schedule.forEach(() => {
+      html += '<div class="card day"><div class="dayhead"></div><div class="kps"></div>' +
+              '<div class="tasks"></div><div class="reason"></div></div>';
+    });
+    box.innerHTML = html;
+    setRichText(box.querySelector('.summary'), r.summary);
+    box.querySelectorAll('.day').forEach((el, i) => {
+      const d = r.schedule[i];
+      setRichText(el.querySelector('.dayhead'), '第 ' + d.day + ' 天 · ' + d.focus);
+      setRichText(el.querySelector('.kps'), '知识点：' + d.knowledge_points.join('、'));
+      setRichText(el.querySelector('.tasks'), '任务：' + d.tasks);
+      setRichText(el.querySelector('.reason'), '依据：' + d.reason);
+    });
+  } catch (e) { box.innerHTML = '<p class="err">' + e.message + '</p>'; }
+};
+
+/* ---------- 学情 ---------- */
+async function loadProfile() {
+  const box = $('profile-box');
+  box.innerHTML = '<p class="loading">加载中…</p>';
+  try {
+    const r = await api('/profile/' + encodeURIComponent(uid()));
+    if (!r.items.length) {
+      box.innerHTML = '<p class="muted">还没有练习记录，先去「练习」做几道题。</p>';
+      $('profile-weak').textContent = '';
+      return;
+    }
+    box.innerHTML = r.items.map(() =>
+      '<div class="barrow"><span class="kp"></span><div class="bar"><i></i></div><span class="pct"></span></div>'
+    ).join('');
+    const rows = box.querySelectorAll('.barrow');
+    r.items.forEach((it, i) => {
+      const pct = Math.round(Number(it.mastery) * 100);
+      rows[i].querySelector('.kp').textContent = it.knowledge_point;
+      const fill = rows[i].querySelector('i');
+      fill.style.width = Math.max(pct, 3) + '%';
+      fill.style.background = pct >= 60 ? '#22c55e' : (pct >= 30 ? '#f59e0b' : '#ef4444');
+      rows[i].querySelector('.pct').textContent = pct + '%（练 ' + it.total_count + ' 次 / 错 ' + it.wrong_count + ' 次）';
+    });
+    $('profile-weak').textContent = r.weak_points.length
+      ? '薄弱知识点（掌握度 < 60%）：' + r.weak_points.join('、')
+      : '暂无明显薄弱知识点。';
+  } catch (e) { box.innerHTML = '<p class="err">' + e.message + '</p>'; }
+}
+$('profile-go').onclick = loadProfile;
+</script>
+</body>
+</html>

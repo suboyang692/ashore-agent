@@ -14,6 +14,7 @@
 | 规划 | `app/planner_agent.py` | 读取学情画像与题库缺口，生成 N 天复习计划（逐日知识点、题量、依据）并落库 |
 | 检索 | `app/retriever.py` | ChromaDB 向量召回 + BM25 关键词召回，RRF 按排名融合（早期版本直接拼接导致 BM25 结果被截断，故改为 RRF） |
 | 练习 | `app/practice.py` | 客观题抽题、判分、落库、学情掌握度更新 |
+| 界面 | `app/api.py` + `web/index.html` | 单页操作台：答疑、出题、练习、规划、学情五个面板，纯静态无构建；数学公式用 KaTeX 渲染，加载失败自动退回原文 |
 
 ## 技术栈
 
@@ -49,6 +50,11 @@ ashore/
 │   ├── dataset.json       # 评测集（检索 + 批改）
 │   ├── labeling_rubric.md # 错因标注规范
 │   └── run_eval.py        # 召回率 / 错因准确率 / 通过判定准确率
+├── web/
+│   └── index.html         # 单页操作界面（静态，挂载在 /ui；公式由 KaTeX 渲染）
+├── tests/                 # pytest 用例（纯函数 + 打桩，不依赖真实大模型与数据库）
+│   └── js/                # 前端渲染的 Node 用例（node tests/js/test_render.js）
+├── pytest.ini             # 测试配置（testpaths / pythonpath / markers）
 ├── knowledge/             # 讲义源文件（切片后写入 ChromaDB）
 └── data/                  # 本地持久化（ChromaDB），不纳入版本管理
 ```
@@ -84,6 +90,12 @@ python -m app.planner_agent   # 生成复习计划
 python eval/run_eval.py       # 跑评测
 python -m app.inspect_db      # 查看数据库真实内容
 python -m app.inspect_kb      # 对比三种检索效果
+pytest                        # 跑单元测试（不消耗 API 额度、不依赖 MySQL）
+
+# 启动 HTTP 服务
+python -m app.api
+#   操作界面  http://127.0.0.1:8000/ui/
+#   接口文档  http://127.0.0.1:8000/docs
 ```
 
 ## 评测
@@ -95,6 +107,33 @@ python -m app.inspect_kb      # 对比三种检索效果
 
 标注口径见 `eval/labeling_rubric.md`：先判对错，再判错因，错因不影响通过判定。
 
+## 测试
+
+```bash
+pytest                          # 后端用例：54 条
+node tests/js/test_render.js    # 前端渲染用例：14 条（需 Node 18+）
+```
+
+后端用例（`tests/`，共 54 条）：
+
+| 文件 | 覆盖内容 |
+|---|---|
+| `test_practice.py` | 客观题判分边界：大小写、多余文字、数学撇号 ′、空作答 |
+| `test_quiz_normalize.py` | 出题答案规范化：`math:` 前缀、LaTeX 包裹、选项内容反查字母、填空题重复左端、解析自我纠错清理 |
+| `test_planner_clean.py` | 规划依据里的自我校验痕迹清理 |
+| `test_retriever_rrf.py` | RRF 融合：两路结果都保留、双路命中的片段排名更高、top_k 截断 |
+| `test_grader.py` | 批改 Agent（假 LLM 打桩）：错因枚举兜底、提示词组装 |
+| `test_router.py` | 路由确定性规则：带 `question_id` 不过意图分类、意图分发、多轮记忆上限 |
+| `test_api.py` | FastAPI 接口：参数校验、异常转 500、题库与计划接口、`/ui` 页面挂载 |
+| `test_eval_dataset.py` | 评测集自检：字段完整、错因取值合法 |
+
+单元测试统一用 `tests/stubs.py` 里的假模型打桩，因此跑测试不消耗 API 额度、不依赖 MySQL。
+
+前端用例（`tests/js/test_render.js`，14 条）覆盖答案里 Markdown 与 LaTeX 的混合渲染：
+跨行 `$$` 块、`\begin{cases}` 环境、货币符号不误判成公式、加粗跨公式片段不露出星号、
+KaTeX 不可用时降级显示原文。该脚本从 `web/index.html` 的 `mathify` 标记段**抽取真实代码**执行，
+不是复制一份逻辑，所以测的就是页面实际运行的实现。
+
 ## 进度
 
 - [x] D1 项目骨架 + MySQL 四表 + Function Calling Agent
@@ -104,6 +143,7 @@ python -m app.inspect_kb      # 对比三种检索效果
 - [x] D5 评测框架 + 标注规范 + 三轮迭代（错因准确率 66.7% → 94.4%）
 - [x] D6 出题 Agent（薄弱知识点驱动 + 答案规范化）
 - [x] D7 规划 Agent（学情画像驱动复习计划，新增 `review_plans` 表）
-- [ ] D8 路由 Agent + FastAPI 服务
-- [ ] D9 pytest 自动化测试
-- [ ] D10 前端界面 / 扫描件 OCR
+- [x] D8 路由 Agent + FastAPI 服务（/chat 统一入口 + 7 个接口）
+- [x] D9 pytest 自动化测试（54 条用例，LLM 打桩、免数据库）
+- [x] D10 单页操作界面（答疑 / 出题 / 练习 / 规划 / 学情五面板）
+- [ ] 二期：扫描件 OCR、Redis 会话与检索缓存、界面组件化
