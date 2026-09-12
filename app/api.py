@@ -59,6 +59,20 @@ class SubmitRequest(BaseModel):
     answer: str
 
 
+@app.get("/")
+def root():
+    """根路径：给出接口入口，避免直接访问出现 404。"""
+    return {
+        "name": "研岸 Ashore API",
+        "version": app.version,
+        "docs": "/docs",
+        "endpoints": [
+            "/chat", "/quiz", "/plan", "/questions/next",
+            "/submit", "/profile/{user_id}", "/plan/{user_id}", "/kb/search", "/health",
+        ],
+    }
+
+
 @app.get("/health")
 def health():
     """健康检查。"""
