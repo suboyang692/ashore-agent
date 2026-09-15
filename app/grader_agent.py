@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from app.db import execute, query_one
 from app.graph_agent import _model
 from app.practice import _update_mastery
+from app.question_types import SOLUTION
 
 GRADER_SYSTEM = (
     "你是一位考研数学阅卷老师，负责批改考生解答题。请严格按以下顺序执行。\n"
@@ -128,9 +129,9 @@ def pick_subjective(user_id: str):
     return query_one(
         """SELECT q.* FROM questions q
            LEFT JOIN answer_records a ON a.question_id = q.id AND a.user_id = %s
-           WHERE q.question_type = '解答' AND a.id IS NULL
+           WHERE q.question_type = %s AND a.id IS NULL
            ORDER BY RAND() LIMIT 1""",
-        (user_id,),
+        (user_id, SOLUTION),
     )
 
 

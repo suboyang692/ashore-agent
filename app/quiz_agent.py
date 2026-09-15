@@ -21,6 +21,7 @@ from app.db import execute, query_all, query_one
 
 # 复用答疑/批改 Agent 同一个模型实例
 from app.graph_agent import _model
+from app.question_types import is_choice, normalize_question_type
 
 QUIZ_COUNT = 3
 SOURCE_TAG = "generated-v1"
@@ -98,7 +99,7 @@ def strip_blank_prefix(answer: str, stem: str) -> str:
 def final_answer(q: dict) -> str:
     """展示与入库共用的答案规范化入口。"""
     a = clean_answer(q.get("answer", ""))
-    if "选择" in (q.get("question_type") or ""):
+    if is_choice(q.get("question_type")):
         return coerce_choice_answer(a, q.get("options", ""))
     return strip_blank_prefix(a, q.get("stem", ""))
 
@@ -206,9 +207,16 @@ def save_node(state: State):
     """入库：写入 questions 表（source=generated-v1）。"""
     saved = 0
     for q in state["generated"]:
+        try:
+            # 入库前收敛题型：模型常写「选择题/填空题」，而判分分流按标准写法精确匹配，
+            # 多一个「题」字就会静默走错分支。认不出来的整道题拒绝入库。
+            q["question_type"] = normalize_question_type(q["question_type"])
+        except ValueError as exc:
+            print(f"  [save][skip] {exc}")
+            continue
         answer = final_answer(q)
         analysis = clean_analysis(q["analysis"])
-        if "选择" in (q["question_type"] or "") and not re.fullmatch(r"[A-D]", answer):
+        if is_choice(q) and not re.fullmatch(r"[A-D]", answer):
             print(f"  [save][skip] 选择题答案无法映射成选项字母，跳过：{answer!r}")
             continue
         # 入库前校验：答案不能为空、不能残留 LaTeX 命令

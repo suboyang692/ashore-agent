@@ -2,10 +2,14 @@
 
 用法: python -m app.practice
 说明: D2 只做客观题判分（选择/填空），主观题批改交给后续的批改 Agent。
+
+D12：题型判定收敛到 app/question_types.py，不再在本文件手写「选择」字面量；
+抽题也只抽客观题，避免把解答题丢给文本比对。
 """
 import re
 
 from app.db import execute, query_all, query_one
+from app.question_types import OBJECTIVE_TYPES, is_choice, is_subjective
 
 
 def normalize(text: str) -> str:
@@ -16,9 +20,13 @@ def normalize(text: str) -> str:
 
 def judge(question: dict, user_answer: str) -> int:
     """返回 1 正确 / 0 错误。选择题取 A-D 首字母比较，填空题去空白比较。"""
+    if is_subjective(question):
+        # 解答题必须走批改 Agent。落到这里说明分流错了，宁可炸掉也不要拿学生的
+        # 整段解题过程和「1/2」这种标准答案做文本比对后静默判错。
+        raise ValueError(f"题 {question.get('id')} 是解答题，应走批改 Agent，不能走客观题判分")
     correct = normalize(question["answer"])
     user = normalize(user_answer)
-    if question["question_type"] == "选择":
+    if is_choice(question):
         mc = re.search(r"[a-d]", user)
         user = mc.group(0) if mc else user
         mc2 = re.search(r"[a-d]", correct)
@@ -27,11 +35,15 @@ def judge(question: dict, user_answer: str) -> int:
 
 
 def pick_question(user_id: str, knowledge_point=None):
-    """优先抽该用户没做过的题；都做完了则随机抽一道（允许二刷）。"""
-    sql = """SELECT q.* FROM questions q
+    """优先抽该用户没做过的题；都做完了则随机抽一道（允许二刷）。
+
+    只抽客观题（选择/填空）：本模块只会做精确判分，解答题得走批改 Agent。
+    """
+    marks = ",".join(["%s"] * len(OBJECTIVE_TYPES))
+    sql = f"""SELECT q.* FROM questions q
              LEFT JOIN answer_records a ON a.question_id = q.id AND a.user_id = %s
-             WHERE a.id IS NULL"""
-    args = [user_id]
+             WHERE a.id IS NULL AND q.question_type IN ({marks})"""
+    args = [user_id, *OBJECTIVE_TYPES]
     if knowledge_point:
         sql += " AND q.knowledge_point = %s"
         args.append(knowledge_point)
@@ -39,9 +51,15 @@ def pick_question(user_id: str, knowledge_point=None):
     if row:
         return row
     if knowledge_point:
-        return query_one("SELECT * FROM questions WHERE knowledge_point=%s ORDER BY RAND() LIMIT 1",
-                         (knowledge_point,))
-    return query_one("SELECT * FROM questions ORDER BY RAND() LIMIT 1")
+        return query_one(
+            f"SELECT * FROM questions WHERE knowledge_point=%s AND question_type IN ({marks}) "
+            "ORDER BY RAND() LIMIT 1",
+            (knowledge_point, *OBJECTIVE_TYPES),
+        )
+    return query_one(
+        f"SELECT * FROM questions WHERE question_type IN ({marks}) ORDER BY RAND() LIMIT 1",
+        OBJECTIVE_TYPES,
+    )
 
 
 def submit(user_id: str, question: dict, user_answer: str) -> dict:

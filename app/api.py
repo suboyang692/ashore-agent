@@ -33,6 +33,7 @@ from app.db import query_all, query_one
 from app.grader_agent import grade_subjective
 from app.planner_agent import DEFAULT_DAYS, make_plan
 from app.practice import submit as submit_objective
+from app.question_types import is_subjective, normalize_question_type
 from app.quiz_agent import generate_quiz
 from app.retriever import cached_hybrid_search
 from app.router_agent import public_question, route
@@ -141,6 +142,10 @@ def next_question(user_id: str = "default", question_type: str = ""):
              WHERE a.id IS NULL"""
     args = [user_id]
     if question_type:
+        try:
+            question_type = normalize_question_type(question_type)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         sql += " AND q.question_type = %s"
         args.append(question_type)
     q = query_one(sql + " ORDER BY RAND() LIMIT 1", args)
@@ -156,7 +161,7 @@ def submit(req: SubmitRequest):
     if not q:
         raise HTTPException(status_code=404, detail=f"题目 {req.question_id} 不存在")
 
-    if q["question_type"] == "解答":
+    if is_subjective(q):
         g = grade_subjective(req.user_id, q, req.answer)
         return {
             "type": "subjective",

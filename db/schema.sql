@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS questions (
   subject VARCHAR(64) NOT NULL COMMENT '学科',
   chapter VARCHAR(128) NOT NULL COMMENT '章节',
   knowledge_point VARCHAR(128) NOT NULL COMMENT '知识点',
-  question_type VARCHAR(32) NOT NULL COMMENT '题型：选择/填空/计算/简答',
+  question_type ENUM('选择','填空','解答') NOT NULL COMMENT '题型，三选一；判分分流依赖它（见 app/question_types.py）',
   stem TEXT NOT NULL COMMENT '题干',
   answer TEXT COMMENT '标准答案',
   analysis TEXT COMMENT '解析',

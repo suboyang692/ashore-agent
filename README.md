@@ -41,6 +41,7 @@ ashore/
 │   ├── qa_agent.py        # 答疑 Agent 的手写循环版本（保留用于对照）
 │   ├── agent_demo.py      # 最小 Function Calling 演示
 │   ├── cache.py           # Redis 缓存层：检索缓存 + 会话记忆（连不上自动降级）
+│   ├── question_types.py  # 题型枚举唯一来源：收敛「选择题/填空题」写法 + 分流判定
 │   ├── inspect_db.py      # 数据自检：查看 MySQL 各表真实内容
 │   ├── inspect_kb.py      # 知识库自检：切片概况 + 三种检索方式对比
 │   └── inspect_cache.py   # 缓存自检：后端 / 命中率 / 键分布 / 冷热检索对比
@@ -48,7 +49,8 @@ ashore/
 │   ├── schema.sql         # 5 张核心表
 │   ├── init_db.py         # 建库建表
 │   ├── seed_questions.py  # 客观题种子数据
-│   └── seed_subjective.py # 主观题种子数据
+│   ├── seed_subjective.py # 主观题种子数据
+│   └── migrate_question_type.py  # 老库升级：清洗题型写法并把列收紧成 ENUM
 ├── eval/
 │   ├── dataset.json       # 评测集（检索 + 批改）
 │   ├── labeling_rubric.md # 错因标注规范
@@ -67,7 +69,7 @@ ashore/
 
 | 表 | 作用 |
 |---|---|
-| `questions` | 题库：题干、答案、解析、知识点、难度、来源 |
+| `questions` | 题库：题干、答案、解析、知识点、难度、来源；`question_type` 为 `ENUM('选择','填空','解答')`，判分分流依赖它 |
 | `answer_records` | 答题记录：作答原文、对错、得分、错因 |
 | `user_mastery` | 学情画像：用户 × 知识点的练习次数、错误次数、掌握度 |
 | `eval_annotations` | 评测标注与 badcase |
@@ -84,6 +86,7 @@ copy .env.example .env        # 填入 DASHSCOPE_API_KEY 与 MYSQL_PASSWORD
 python db/init_db.py          # 建库建表
 python db/seed_questions.py   # 客观题种子数据
 python db/seed_subjective.py  # 主观题种子数据
+python db/migrate_question_type.py --apply   # 老库升级：清洗题型并收紧成 ENUM（新库可跳过）
 
 python -m app.ingest          # 讲义切片入向量库
 python -m app.graph_agent     # 答疑（自主检索 + 引用出处）
@@ -106,6 +109,26 @@ python -m app.api
 #   操作界面  http://127.0.0.1:8000/ui/
 #   接口文档  http://127.0.0.1:8000/docs
 ```
+
+## 题型枚举（为什么单独抽一个模块）
+
+种子数据写「选择 / 填空 / 解答」，但模型出题时按提示词很容易输出「选择题 / 填空题 /
+解答题」。而判分分流是按字符串精确匹配的：`practice.judge` 里 `== "选择"` 才走选项
+字母比对、`api` 的 `/submit` 里 `== "解答"` 才转批改 Agent。多一个「题」字就会静默走到
+错误分支——不报错，只是判错，或者那道题永远抽不出来。
+
+更隐蔽的是同一个枚举在项目里有两套比对方式：`quiz_agent` 用 `"选择" in qtype`
+（子串，能容忍「选择题」），判分用 `== "选择"`（不能容忍）。脏数据能过其中一道、
+卡在另一道。
+
+现在收敛到 `app/question_types.py` 一处：
+
+- 入库统一过 `normalize_question_type()`，认不出来的整道题拒绝入库；
+- 分流统一用 `is_choice / is_blank / is_subjective`，不再手写字符串字面量；
+- 解答题落到客观题判分时**直接抛异常**，把静默判错变成显式崩溃；
+- `db/schema.sql` 把列收紧成 `ENUM('选择','填空','解答')`，老库用
+  `python db/migrate_question_type.py --apply` 升级（脚本可重复执行，遇到认不出的
+  写法会拒绝 ALTER 而不是让 MySQL 静默截断成空串）。
 
 ## 缓存与会话（Redis）
 
@@ -141,16 +164,17 @@ python -m app.api
 ## 测试
 
 ```bash
-pytest                          # 后端用例：78 条（另有 3 条真 Redis 联调，Redis 没起时自动 skip）
+pytest                          # 后端用例：93 条（另有 3 条真 Redis 联调，Redis 没起时自动 skip）
 pytest -m integration           # 只跑真 Redis 联调（需先 docker compose up -d redis）
 node tests/js/test_render.js    # 前端渲染用例：14 条（需 Node 18+）
 ```
 
-后端用例（`tests/`，共 78 条）：
+后端用例（`tests/`，共 93 条）：
 
 | 文件 | 覆盖内容 |
 |---|---|
 | `test_practice.py` | 客观题判分边界：大小写、多余文字、数学撇号 ′、空作答 |
+| `test_question_types.py` | 题型枚举：写法收敛、未知题型拒绝入库、解答题不许走客观题判分、出题入库前归一 |
 | `test_quiz_normalize.py` | 出题答案规范化：`math:` 前缀、LaTeX 包裹、选项内容反查字母、填空题重复左端、解析自我纠错清理 |
 | `test_planner_clean.py` | 规划依据里的自我校验痕迹清理 |
 | `test_retriever_rrf.py` | RRF 融合：两路结果都保留、双路命中的片段排名更高、top_k 截断 |
@@ -181,4 +205,5 @@ KaTeX 不可用时降级显示原文。该脚本从 `web/index.html` 的 `mathif
 - [x] D9 pytest 自动化测试（54 条用例，LLM 打桩、免数据库）
 - [x] D10 单页操作界面（答疑 / 出题 / 练习 / 规划 / 学情五面板）
 - [x] D11 Redis 缓存层（检索结果缓存 + 多轮会话外置，不可用时自动降级）
+- [x] D12 题型枚举收敛（「选择题」写法不再静默走错判分分支，DB 层加 ENUM 兜底）
 - [ ] 二期：扫描件 OCR、界面组件化、会话记忆压缩
