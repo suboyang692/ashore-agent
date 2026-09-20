@@ -1,8 +1,8 @@
-"""研岸 D1：跑通第一个 Agent —— 大模型自主判断是否调用工具。
+"""跑通第一个 Agent —— 大模型自主判断是否调用工具。
 
 运行: python -m app.agent_demo
 说明: 演示 ReAct 的最小骨架：用户提问 -> 模型决定调工具 -> 拿结果 -> 组织最终回答。
-D1 的知识库是 stub 占位，后续接入向量检索。
+这里用 stub 知识库只是为了把链路跑通，正式链路见 app/ingest.py + app/retriever.py。
 """
 import json
 
@@ -25,7 +25,7 @@ TOOLS = [
     }
 ]
 
-# D1 占位知识库：之后替换为「教材切片 + 向量检索」
+# 占位知识库：正式链路是「讲义切片 + 向量检索」（app/retriever.py）
 KNOWLEDGE_STUB = {
     "极限": "求极限核心方法：等价无穷小替换、洛必达法则、夹逼准则。注意等价替换只在乘除因子中可用。",
     "定积分": "定积分计算四大方法：牛顿-莱布尼茨公式、换元积分、分部积分、对称区间奇偶性化简。",
@@ -35,7 +35,7 @@ KNOWLEDGE_STUB = {
 
 def call_tool(name: str, args: dict) -> str:
     if name == "get_knowledge_explain":
-        return KNOWLEDGE_STUB.get(args.get("knowledge_point", ""), "知识库暂无该知识点讲解（D1 为占位数据）。")
+        return KNOWLEDGE_STUB.get(args.get("knowledge_point", ""), "知识库暂无该知识点讲解（这里是占位数据）。")
     return "未知工具"
 
 

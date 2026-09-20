@@ -1,4 +1,4 @@
-"""规划 Agent 的排期依据清理（D7 发现的思维链外泄）。"""
+"""规划 Agent 的排期依据清理（思维链外泄）。"""
 from app.planner_agent import clean_reason
 
 REAL_LEAK = (

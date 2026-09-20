@@ -1,4 +1,4 @@
-"""题型枚举收敛（D12）：多一个「题」字不能再靠运气被正确判分。"""
+"""题型枚举收敛：多一个「题」字不能再靠运气被正确判分。"""
 import pytest
 
 from app import question_types as qt

@@ -1,4 +1,4 @@
-﻿"""研岸 D3：LangGraph 状态图编排 —— 答疑 Agent 从手写循环升级为图编排。
+﻿"""答疑 Agent —— LangGraph 状态图编排的 ReAct 循环。
 
 图结构（ReAct）:
     agent 节点（调模型，决定是否用工具）

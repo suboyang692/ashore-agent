@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
 def _isolate_cache():
     """单测一律走进程内后端：不打真实 Redis，也不会被上一个用例的键影响。
 
-    多轮会话记忆（D11 起）也在这里，所以顺带保证了用例之间互不串联。
+    多轮会话记忆也在这里，所以顺带保证了用例之间互不串联。
     """
     from app import cache
 

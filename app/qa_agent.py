@@ -1,4 +1,4 @@
-"""研岸 D2-C：答疑 Agent —— RAG 检索 + 强制引用来源。
+"""答疑 Agent —— RAG 检索 + 强制引用来源。
 
 用法: python -m app.qa_agent
 说明: 模型自主决定调用 search_knowledge 工具检索讲义，

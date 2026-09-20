@@ -1,4 +1,4 @@
-"""D11 Redis 缓存层：后端降级、TTL、检索缓存失效、多轮会话记忆。
+"""Redis 缓存层：后端降级、TTL、检索缓存失效、多轮会话记忆。
 
 单测一律用进程内后端（conftest 里已强制），不依赖真实 Redis；
 真连服务器的联调在 tests/test_cache_integration.py（pytest -m integration）。

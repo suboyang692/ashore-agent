@@ -1,4 +1,4 @@
--- 研岸 Ashore：建库 + 四张核心表（D1）
+-- 研岸 Ashore：建库 + 建核心表
 CREATE DATABASE IF NOT EXISTS ashore DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE ashore;
 

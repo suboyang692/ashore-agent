@@ -1,4 +1,4 @@
-"""研岸 D1：初始化 MySQL 数据库与四张核心表。
+"""初始化 MySQL 数据库与核心表。
 用法: python db/init_db.py    （先复制 .env.example 为 .env 并填好 MYSQL_PASSWORD）
 """
 import sys

@@ -1,4 +1,4 @@
-"""研岸 D4：主观解答题种子数据（供批改 Agent 使用）。
+"""主观解答题种子数据（供批改 Agent 使用）。
 
 用法: python db/seed_subjective.py
 来源标记: seed-subj-v1（幂等，重复运行跳过）

@@ -1,8 +1,8 @@
-"""研岸 D2-B：混合检索 —— 向量检索 + BM25，用 RRF 按排名融合。
+"""混合检索 —— 向量检索 + BM25，用 RRF 按排名融合。
 
-D11 追加：cached_hybrid_search() 在 hybrid_search() 外面套了一层 Redis 缓存
+cached_hybrid_search() 在 hybrid_search() 外面套了一层 Redis 缓存
 （本文件的 hybrid_search 保持纯函数，评测脚本仍然每次真检索）。
-D13 追加：命中结果带上切片页码与 cite（「文件名 · 第N页」），答疑 Agent 引用出处时
+命中结果带上切片页码与 cite（「文件名 · 第N页」），答疑 Agent 引用出处时
 才有页码可给 —— 否则引用只能到文件名，用户没法回到原文核对。
 
 RRF(Reciprocal Rank Fusion): score(d) = Σ 1/(k + rank(d))，k 取 60（论文默认）。

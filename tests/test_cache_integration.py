@@ -1,4 +1,4 @@
-"""D11 真 Redis 联调：需要先 docker compose up -d redis。
+"""真 Redis 联调：需要先 docker compose up -d redis。
 
 Redis 没起时这几条会自动 skip，所以直接跑 pytest 也不会挂；
     想只跑它们（先 docker compose up -d redis）：

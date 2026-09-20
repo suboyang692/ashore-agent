@@ -1,4 +1,4 @@
-"""研岸 D1：LLM 客户端封装（OpenAI 兼容接口，阿里云百炼）。"""
+"""LLM 客户端封装（OpenAI 兼容接口，阿里云百炼）。"""
 from openai import OpenAI
 from app.config import DASHSCOPE_API_KEY, LLM_BASE_URL, LLM_MODEL
 

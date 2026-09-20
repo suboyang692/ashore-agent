@@ -1,4 +1,4 @@
-"""出题 Agent 的答案规范化（D6 修的两个判分隐患）。"""
+"""出题 Agent 的答案规范化（曾经踩过的两个判分隐患）。"""
 from app.quiz_agent import (
     clean_analysis,
     clean_answer,

@@ -1,4 +1,4 @@
-﻿"""研岸 D8：FastAPI 服务 —— 把各 Agent 暴露成 HTTP 接口。
+﻿"""FastAPI 服务 —— 把各 Agent 暴露成 HTTP 接口。
 
 启动:
     uvicorn app.api:app --reload --port 8000
