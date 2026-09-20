@@ -25,7 +25,7 @@ SYSTEM_PROMPT = (
     "你是考研数学答疑助手。回答规则：\n"
     "1. 回答知识点或解题方法前，必须先调用 search_knowledge 检索讲义；\n"
     "2. 回答必须基于检索到的片段，不得编造公式或结论；\n"
-    "3. 回答末尾用「来源：xxx」标注引用自哪个片段；\n"
+    "3. 回答末尾用「来源：xxx」标注出处，就是片段标注里的文件名与页码（如「讲义.md · 第9页」）；\n"
     "4. 检索不到相关内容时，明确说明「讲义中未涵盖」，不要硬答。"
 )
 
@@ -38,7 +38,7 @@ def search_knowledge(query: str) -> str:
         return "知识库中未检索到相关内容。"
     blocks = []
     for i, h in enumerate(hits, 1):
-        blocks.append(f"[片段{i} | 来源: {h['source']} | 命中方式: {h['via']}]\n{h['text']}")
+        blocks.append(f"[片段{i} | 出处: {h.get('cite') or h['source']} | 命中方式: {h['via']}]\n{h['text']}")
     return "\n\n".join(blocks)
 
 

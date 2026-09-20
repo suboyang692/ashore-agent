@@ -11,7 +11,7 @@
 import sys
 from typing import Literal
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from app import cache
@@ -36,7 +36,15 @@ ROUTER_SYSTEM = (
     "- reply 仅在 chat 时填写一句友好的中文回复，其余意图留空。"
 )
 
-MAX_HISTORY = 10
+MAX_HISTORY = 10          # 原文保留的条数
+MAX_SUMMARY_CHARS = 800   # 滚动摘要的字数上限
+
+SUMMARY_SYSTEM = (
+    "你在维护一段考研答疑对话的滚动摘要。把「已有摘要」和「新增对话」合并成一段新摘要，"
+    "只保留对后续答疑有用的信息：学生问过的知识点、暴露出的薄弱点、已经讲清楚的结论、"
+    "学生说明过的偏好（比如目标院校、复习进度）。不要复述题目细节，不要写评价和客套话，"
+    "直接输出摘要正文，不超过 300 字。"
+)
 
 
 class RouteDecision(BaseModel):
@@ -69,9 +77,49 @@ def _pick_turns(messages: list) -> list:
     return turns
 
 
+def summarize(previous: str, dropped: list, model=None) -> str:
+    """把被挤出窗口的对话压进滚动摘要。
+
+    直接丢弃窗口外的对话，「几轮前提过的薄弱点」就永远消失了；全量留着又会把每轮
+    请求的上下文越撑越大。折中：用模型把旧对话压成几百字的摘要，和最近 N 条原文
+    一起喂给 Agent。压缩失败时保留旧摘要 —— 退化成原来「只留最近 N 条」的行为，
+    但绝不因为一次调用失败就把已有记忆清空。
+
+    model 参数是给测试注入桩用的，生产路径走模块级 _model。
+    """
+    lines = []
+    if previous:
+        lines.append("【已有摘要】" + previous)
+    for m in dropped:
+        who = "学生" if m.get("role") == "human" else "助手"
+        lines.append(f"{who}：{(m.get('content') or '')[:400]}")
+    try:
+        reply = (model or _model).invoke([
+            {"role": "system", "content": SUMMARY_SYSTEM},
+            {"role": "user", "content": "\n".join(lines)},
+        ])
+    except Exception as exc:                      # 摘要只是增强，失败不能拖垮这轮对话
+        print(f"  [warn] 会话摘要压缩失败，沿用上一版：{type(exc).__name__}: {exc}")
+        return previous
+    text = getattr(reply, "content", reply)
+    if not isinstance(text, str):
+        return previous
+    text = text.strip()
+    return text[:MAX_SUMMARY_CHARS] if text else previous
+
+
+def _summary_message(user_id: str):
+    """把滚动摘要包成一条 system 消息；还没有摘要时返回 None。"""
+    text = cache.session_summary_load(user_id)
+    return SystemMessage(content="【此前对话摘要】" + text) if text else None
+
+
 def _history(user_id: str) -> list:
     """读取该用户的多轮记忆并还原成 LangChain 消息（Redis 优先，降级时读进程内）。"""
     restored = []
+    summary = _summary_message(user_id)
+    if summary is not None:
+        restored.append(summary)
     for item in cache.session_load(user_id, limit=MAX_HISTORY):
         if not isinstance(item, dict):
             continue
@@ -86,8 +134,15 @@ def _history(user_id: str) -> list:
 
 
 def _remember(user_id: str, messages: list) -> None:
-    """整段覆盖写入。外置存储后，uvicorn 多 worker 之间也能共享同一份上下文。"""
-    cache.session_save(user_id, _pick_turns(messages), limit=MAX_HISTORY)
+    """整段覆盖写入。外置存储后，uvicorn 多 worker 之间也能共享同一份上下文。
+
+    超出窗口的那几条不直接丢，先压进滚动摘要，下一轮还会以 system 消息的形式回来。
+    """
+    picked = _pick_turns(messages)
+    dropped = picked[:-MAX_HISTORY] if len(picked) > MAX_HISTORY else []
+    if dropped:
+        cache.session_summary_save(user_id, summarize(cache.session_summary_load(user_id), dropped))
+    cache.session_save(user_id, picked, limit=MAX_HISTORY)
 
 
 def classify(message: str) -> RouteDecision:

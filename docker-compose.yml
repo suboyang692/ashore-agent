@@ -1,12 +1,35 @@
-# 研岸 D11：本地 Redis（检索结果缓存 + 多轮会话记忆）
+﻿# 研岸 Ashore：一键起 app + mysql + redis
 #
-#   docker compose up -d redis      启动
-#   docker compose logs -f redis    看日志
-#   docker compose down             停止（数据留在 named volume 里）
+#   docker compose up -d --build                      启动全部
+#   docker compose exec app python db/seed_questions.py   灌种子题（首次）
+#   docker compose exec app python -m app.ingest          入库讲义（首次）
+#   docker compose down                               停止（数据留在 named volume 里）
 #
-# 起不来也没关系：app/cache.py 会检测不到连接并自动降级为进程内缓存，
-# 业务不中断，只是 GET /cache/stats 里的 backend 会显示 memory。
+# 只想要 Redis 的话（本地跑 python -m app.api）：docker compose up -d redis
+# 起不来也没关系：app/cache.py 检测不到连接会自动降级为进程内缓存，业务不中断，
+# GET /cache/stats 里的 backend 会显示 memory。
 services:
+  mysql:
+    image: mysql:8.0
+    container_name: ashore-mysql
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-ashore123}
+      MYSQL_DATABASE: ashore
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - ashore-mysql-data:/var/lib/mysql
+      # 首次启动时自动建库建表（schema.sql 自带 CREATE DATABASE + USE）
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
   redis:
     image: redis:7-alpine
     container_name: ashore-redis
@@ -22,5 +45,32 @@ services:
       retries: 5
     restart: unless-stopped
 
+  app:
+    build: .
+    container_name: ashore-app
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:?请在项目根目录的 .env 里配置 DASHSCOPE_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-qwen-plus}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      # 容器里连服务用服务名，不是 127.0.0.1 —— 覆盖 .env 里的本地连接串
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-ashore123}
+      MYSQL_DB: ashore
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    volumes:
+      - ashore-data:/app/data
+    restart: unless-stopped
+
 volumes:
+  ashore-mysql-data:
   ashore-redis-data:
+  ashore-data:

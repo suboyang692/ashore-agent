@@ -43,6 +43,7 @@ log = logging.getLogger("ashore.cache")
 KB_VERSION_KEY = "ashore:kb:version"
 RET_PREFIX = "ashore:ret"
 SESS_PREFIX = "ashore:sess"
+SUMMARY_PREFIX = "ashore:sum"      # 滚动摘要单独前缀，免得被 session_users() 当成用户
 ALL_PREFIX = "ashore:"
 
 
@@ -334,6 +335,28 @@ def _safe_dump(value):
         return json.dumps({"_raw": str(value)}, ensure_ascii=False)
 
 
+def session_summary_key(user_id):
+    return f"{SUMMARY_PREFIX}:{user_id}"
+
+
+def session_summary_load(user_id):
+    """读滚动摘要（被挤出窗口的对话的压缩结果）；没有就返回空串。"""
+    raw = backend().get(session_summary_key(user_id))
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "ignore")
+    return raw or ""
+
+
+def session_summary_save(user_id, text, ttl=SESSION_TTL):
+    key = session_summary_key(user_id)
+    client = backend()
+    if not text:
+        return client.delete(key)
+    client.set(key, text)
+    client.expire(key, ttl)
+    return 1
+
+
 def session_save(user_id, messages, limit=SESSION_MAX, ttl=SESSION_TTL):
     """整段覆盖写入，只保留最近 limit 条，并刷新 TTL。"""
     kept = list(messages or [])[-limit:]
@@ -350,7 +373,7 @@ def session_save(user_id, messages, limit=SESSION_MAX, ttl=SESSION_TTL):
 
 
 def session_clear(user_id):
-    return backend().delete(session_key(user_id))
+    return backend().delete(session_key(user_id), session_summary_key(user_id))
 
 
 def session_users():

@@ -12,15 +12,18 @@
 | 出题 | `app/quiz_agent.py` | 依据学情画像定位最薄弱知识点，命制变式题（结构化输出），入库前对答案做规范化与校验，避免答案格式导致判分失效 |
 | 批改 | `app/grader_agent.py` | 主观题按 7 类错因（方法误用 / 审题错误 / 知识点不熟 / 计算错误 / 结论跳跃 / 表述不规范 / 无错误）结构化评分，输出错因、评语与改进建议并落库 |
 | 规划 | `app/planner_agent.py` | 读取学情画像与题库缺口，生成 N 天复习计划（逐日知识点、题量、依据）并落库 |
-| 检索 | `app/retriever.py` | ChromaDB 向量召回 + BM25 关键词召回，RRF 按排名融合（早期版本直接拼接导致 BM25 结果被截断，故改为 RRF） |
+| 检索 | `app/retriever.py` | ChromaDB 向量召回 + BM25 关键词召回，RRF 按排名融合（早期版本直接拼接导致 BM25 结果被截断，故改为 RRF）；BM25 分数为 0 的命中在融合前丢掉，否则它们会白拿一份 `1/(k+rank)` 的排名分、把不相关内容顶进 top-k |
 | 练习 | `app/practice.py` | 客观题抽题、判分、落库、学情掌握度更新 |
 | 缓存 | `app/cache.py` | 检索结果缓存 + 多轮会话记忆放 Redis，连不上自动降级为进程内实现；检索缓存用知识库版本号失效，不用会阻塞的 `KEYS` 扫删 |
+| 记忆 | `app/router_agent.py` | 会话超出窗口的那几条不直接丢，先压成滚动摘要，下一轮以 system 消息回到上下文；摘要失败只退化、不清空已有记忆 |
+| 真题 | `app/exam_ocr.py` + `db/import_exam.py` | 真题 PDF 逐页渲染后由视觉模型转成 Markdown + LaTeX（转文本层抽不出公式），保留页码锚点入库；再从转录结果解析出题目写进题库 |
 | 界面 | `app/api.py` + `web/index.html` | 单页操作台：答疑、出题、练习、规划、学情五个面板，纯静态无构建；数学公式用 KaTeX 渲染，加载失败自动退回原文 |
 
 ## 技术栈
 
-Python 3.10 · FastAPI · LangGraph · LangChain · Qwen（DashScope OpenAI 兼容模式）·
-ChromaDB + BM25（RRF 混合检索）· Redis · MySQL · pdfplumber · pytest + Node 测试
+Python 3.10 · FastAPI · LangGraph · LangChain · Qwen（DashScope，含 qwen-vl 视觉转录）·
+ChromaDB + BM25（RRF 混合检索）· Redis · MySQL · pdfplumber · Docker Compose ·
+GitHub Actions · pytest + Node 测试
 
 ## 目录结构
 
@@ -44,22 +47,28 @@ ashore/
 │   ├── question_types.py  # 题型枚举唯一来源：收敛「选择题/填空题」写法 + 分流判定
 │   ├── inspect_db.py      # 数据自检：查看 MySQL 各表真实内容
 │   ├── inspect_kb.py      # 知识库自检：切片概况 + 三种检索方式对比
-│   └── inspect_cache.py   # 缓存自检：后端 / 命中率 / 键分布 / 冷热检索对比
+│   ├── inspect_cache.py   # 缓存自检：后端 / 命中率 / 键分布 / 冷热检索对比
+│   └── exam_ocr.py        # 真题 PDF -> Markdown（视觉模型逐页转录 + 页码锚点 + 断点续跑）
 ├── db/
 │   ├── schema.sql         # 5 张核心表
 │   ├── init_db.py         # 建库建表
 │   ├── seed_questions.py  # 客观题种子数据
 │   ├── seed_subjective.py # 主观题种子数据
-│   └── migrate_question_type.py  # 老库升级：清洗题型写法并把列收紧成 ENUM
+│   ├── migrate_question_type.py  # 老库升级：清洗题型写法并把列收紧成 ENUM
+│   ├── exam_2023_math2.py # 2023 年数学二真题的人工标注（题号 -> 章节/知识点/难度/答案）
+│   └── import_exam.py     # 从转录结果解析题目并写入题库（只导标注过的题）
 ├── eval/
 │   ├── dataset.json       # 评测集（检索 + 批改）
 │   ├── labeling_rubric.md # 错因标注规范
-│   └── run_eval.py        # 召回率 / 错因准确率 / 通过判定准确率
+│   ├── collect.py         # 采集真实用户作答（模型预判 + 人工确认）补进评测集
+│   └── run_eval.py        # 召回率 / 错因准确率 / 通过判定准确率（按样本来源分组统计）
 ├── web/
 │   └── index.html         # 单页操作界面（静态，挂载在 /ui；公式由 KaTeX 渲染）
 ├── tests/                 # pytest 用例（纯函数 + 打桩，不依赖真实大模型与数据库）
 │   └── js/                # 前端渲染的 Node 用例（node tests/js/test_render.js）
-├── docker-compose.yml     # 本地 Redis 7（可选，起不来会自动降级）
+├── Dockerfile             # 应用镜像（uvicorn + 健康检查）
+├── docker-compose.yml     # app + MySQL + Redis 一键起（只要 Redis 也可以）
+├── .github/workflows/     # CI：pytest + Node 前端用例
 ├── pytest.ini             # 测试配置（testpaths / pythonpath / markers）
 ├── knowledge/             # 讲义源文件（切片后写入 ChromaDB）
 └── data/                  # 本地持久化（ChromaDB），不纳入版本管理
@@ -89,6 +98,13 @@ python db/seed_subjective.py  # 主观题种子数据
 python db/migrate_question_type.py --apply   # 老库升级：清洗题型并收紧成 ENUM（新库可跳过）
 
 python -m app.ingest          # 讲义切片入向量库
+
+# 真题入库（可选但建议）：扫描件/公式型 PDF 的文本层抽不出公式，先逐页转成 Markdown
+python -m app.exam_ocr knowledge/raw/2023年考研数学二参考答案及解析.pdf
+python -m app.ingest knowledge/2023年考研数学二参考答案及解析.md
+python db/import_exam.py --dry-run    # 先看解析出的题目对不对
+python db/import_exam.py              # 确认无误后写入题库
+
 python -m app.graph_agent     # 答疑（自主检索 + 引用出处）
 python -m app.practice        # 客观题练习（判分 + 学情画像）
 python -m app.grader_agent    # 主观题批改（错因 + 评语）
@@ -103,6 +119,7 @@ python -m app.inspect_cache demo   # 冷热检索对比 + 缓存失效演示
 python -m app.inspect_cache        # 当前后端 / 命中率 / 键数量
 
 pytest                        # 跑单元测试（不消耗 API 额度、不依赖 MySQL / Redis）
+python eval/collect.py        # 采集自己的真实作答，补进评测集（评测集不能只有合成语料）
 
 # 启动 HTTP 服务
 python -m app.api
@@ -151,25 +168,40 @@ python -m app.api
   轮询到不同进程，上下文直接丢；进程重启也全清。另外持久化的只有「提问 + 最终回答」，
   工具调用的中间消息一律丢弃：它们带着整段检索原文、体积是对话本身的十倍量级，而且
   `tool_calls` 与 `tool_call_id` 必须成对，一旦按条数截断就会出现半截配对，下一轮请求会被接口拒绝。
+- **窗口外的对话压成滚动摘要，而不是丢掉。** 只留最近 10 条的话，「几轮前提过的薄弱点」
+  会永久消失；全量留着又会把每轮请求的上下文越撑越大。现在超出窗口的对话交给模型压成
+  一段几百字的摘要（存在 `ashore:sum:{user}`），下一轮作为 system 消息回到上下文。
+  压缩调用失败时沿用上一版摘要——退化成原来的行为，但不会因为一次失败就把记忆清空。
 
 ## 评测
 
-`eval/run_eval.py` 覆盖两类任务：
+`eval/run_eval.py` 覆盖两类任务，并按样本来源分组统计：
 
-- **检索**：Top-5 是否召回期望内容，当前 7/8 = 87.5%
-- **批改**：错因判定准确率 17/18 = 94.4%，通过 / 不通过判定准确率 17/18 = 94.4%
+| 指标 | 总体 | 合成语料 | 真题题干 |
+|---|---|---|---|
+| 检索 Top-5 召回率 | 14/14 = 100% | 8/8 | 6/6 |
+| 错因判定准确率 | 22/24 = 91.7% | 17/18 = 94.4% | 5/6 = 83.3% |
+| 通过 / 不通过判定准确率 | 23/24 = 95.8% | 18/18 = 100% | 5/6 = 83.3% |
 
-标注口径见 `eval/labeling_rubric.md`：先判对错，再判错因，错因不影响通过判定。
+**分组统计是有意的。** 评测集最初 100% 是模型合成的，指标再高也只说明「模型和自己对答案」。
+补进 2023 年数学二真题作为题源后，整体从 94.4% 掉到 91.7%，真题上只有 83.3%——
+这恰好是真实评测该暴露的东西：合成语料上的分数被「见过类似表达」抬高了。两条 badcase
+分别是「公式记错该算而不算计算错误」（合成）与「矩阵题说得含糊却被判无错误」（真题）。
+
+样本来源标在 `source` 字段上：`synthetic` 合成冷启动 / `exam` 真题题干 / `human` 真实作答。
+真实作答用 `python eval/collect.py` 采集（批改 Agent 先预判，人只做「同意 / 改成 X」，
+把标注成本压到每条十几秒）。标注口径见 `eval/labeling_rubric.md`：先判对错，再判错因，
+错因不影响通过判定。
 
 ## 测试
 
 ```bash
-pytest                          # 后端用例：93 条（另有 3 条真 Redis 联调，Redis 没起时自动 skip）
+pytest                          # 后端用例：114 条（另有 3 条真 Redis 联调，Redis 没起时自动 skip）
 pytest -m integration           # 只跑真 Redis 联调（需先 docker compose up -d redis）
 node tests/js/test_render.js    # 前端渲染用例：14 条（需 Node 18+）
 ```
 
-后端用例（`tests/`，共 93 条）：
+后端用例（`tests/`，共 117 条）：
 
 | 文件 | 覆盖内容 |
 |---|---|
@@ -177,12 +209,14 @@ node tests/js/test_render.js    # 前端渲染用例：14 条（需 Node 18+）
 | `test_question_types.py` | 题型枚举：写法收敛、未知题型拒绝入库、解答题不许走客观题判分、出题入库前归一 |
 | `test_quiz_normalize.py` | 出题答案规范化：`math:` 前缀、LaTeX 包裹、选项内容反查字母、填空题重复左端、解析自我纠错清理 |
 | `test_planner_clean.py` | 规划依据里的自我校验痕迹清理 |
-| `test_retriever_rrf.py` | RRF 融合：两路结果都保留、双路命中的片段排名更高、top_k 截断 |
+| `test_retriever_rrf.py` | RRF 融合：两路结果都保留、双路命中的片段排名更高、top_k 截断、BM25 的 0 分命中被丢掉 |
 | `test_grader.py` | 批改 Agent（假 LLM 打桩）：错因枚举兜底、提示词组装 |
 | `test_router.py` | 路由确定性规则：带 `question_id` 不过意图分类、意图分发、多轮会话记忆的上限与跨轮传递、工具中间态不落盘 |
 | `test_cache.py` | 缓存层：Redis 不可用时降级、探测只做一次、脏缓存清理、检索缓存的命中与「版本号 +1 后失效」、空结果不缓存、会话 TTL 与只留最近 N 条 |
 | `test_api.py` | FastAPI 接口：参数校验、异常转 500、题库与计划接口、`/ui` 页面挂载 |
-| `test_eval_dataset.py` | 评测集自检：字段完整、错因取值合法 |
+| `test_eval_dataset.py` | 评测集自检：字段完整、错因取值合法、来源必须显式声明且不能全是合成语料 |
+| `test_session_summary.py` | 会话压缩：滚动摘要的合并/截断、压缩失败沿用旧摘要、摘要不回写成对话轮次、清会话时一起清摘要 |
+| `test_collect.py` | 真实作答采集：结构拼装、同题不同错法不算重复、合并时不碰其它键 |
 | `test_cache_integration.py` | 真 Redis 联调（Redis 没起时自动 skip）：后端判定、键类型是 List、TTL、版本号 |
 
 单元测试统一用 `tests/stubs.py` 里的假模型打桩，因此跑测试不消耗 API 额度、不依赖 MySQL。
@@ -192,18 +226,22 @@ node tests/js/test_render.js    # 前端渲染用例：14 条（需 Node 18+）
 KaTeX 不可用时降级显示原文。该脚本从 `web/index.html` 的 `mathify` 标记段**抽取真实代码**执行，
 不是复制一份逻辑，所以测的就是页面实际运行的实现。
 
-## 进度
+## 部署（Docker Compose）
 
-- [x] D1 项目骨架 + MySQL 四表 + Function Calling Agent
-- [x] D2 客观题练习闭环 + RAG 知识库（向量 + BM25 混合检索）
-- [x] D3 答疑 Agent 用 LangGraph 状态图重构
-- [x] D4 批改 Agent（7 类错因结构化输出）
-- [x] D5 评测框架 + 标注规范 + 三轮迭代（错因准确率 66.7% → 94.4%）
-- [x] D6 出题 Agent（薄弱知识点驱动 + 答案规范化）
-- [x] D7 规划 Agent（学情画像驱动复习计划，新增 `review_plans` 表）
-- [x] D8 路由 Agent + FastAPI 服务（/chat 统一入口 + 7 个接口）
-- [x] D9 pytest 自动化测试（54 条用例，LLM 打桩、免数据库）
-- [x] D10 单页操作界面（答疑 / 出题 / 练习 / 规划 / 学情五面板）
-- [x] D11 Redis 缓存层（检索结果缓存 + 多轮会话外置，不可用时自动降级）
-- [x] D12 题型枚举收敛（「选择题」写法不再静默走错判分分支，DB 层加 ENUM 兜底）
-- [ ] 二期：扫描件 OCR、界面组件化、会话记忆压缩
+```bash
+cp .env.example .env            # 填 DASHSCOPE_API_KEY
+docker compose up -d --build    # 起 app + MySQL + Redis
+
+# 首次初始化数据（在容器里跑，连的是 compose 起的 MySQL 与向量库卷）
+docker compose exec app python db/seed_questions.py
+docker compose exec app python db/seed_subjective.py
+docker compose exec app python -m app.ingest
+```
+
+- 三个服务都带 healthcheck，`app` 会等 MySQL / Redis 健康后再启动（`depends_on.condition`）；
+- MySQL 首次启动自动执行 `db/schema.sql` 建库建表（挂在 `/docker-entrypoint-initdb.d/`）；
+- ChromaDB 向量库和 OCR 缓存落在 named volume `ashore-data` 上，容器重建不丢已入库的切片；
+- 只想要 Redis 的话 `docker compose up -d redis`，应用继续在宿主机上跑。
+
+镜像里是单进程 uvicorn。会话记忆已经外置到 Redis，真要多进程可以直接加 `--workers`，
+不会像进程内 dict 那样把同一用户轮询到另一个进程后丢掉上下文。

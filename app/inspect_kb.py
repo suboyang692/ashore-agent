@@ -21,16 +21,22 @@ def show_overview():
     data = col.get(include=["documents", "metadatas"])
     docs = data.get("documents") or []
     metas = data.get("metadatas") or []
-    sources = {}
+    stat = {}
     for m in metas:
-        s = (m or {}).get("source", "未知")
-        sources[s] = sources.get(s, 0) + 1
+        m = m or {}
+        entry = stat.setdefault(m.get("source", "未知"), {"chunks": 0, "pages": set()})
+        entry["chunks"] += 1
+        if m.get("page"):
+            entry["pages"].add(m["page"])
     print("  按来源统计:")
-    for s, c in sources.items():
-        print(f"    - {s}: {c} 个切片")
+    for s, e in stat.items():
+        tail = f"，覆盖 {len(e['pages'])} 页" if e["pages"] else ""
+        print(f"    - {s}: {e['chunks']} 个切片{tail}")
     print("\n===== 切片样本（前 5 个，各截断 100 字）=====")
     for i, d in enumerate(docs[:5]):
-        src = (metas[i] or {}).get("source", "")
+        meta = metas[i] or {}
+        page = meta.get("page") or 0
+        src = meta.get("source", "") + (f" · 第{page}页" if page else "")
         print(f"\n[{i + 1}] 来源: {src}\n    {d[:100].replace(chr(10), ' ')}…")
 
 
@@ -44,7 +50,9 @@ def show_search(query: str):
         print(f"  [{h['score']:.3f}] {h['text'][:70].replace(chr(10), ' ')}…")
     print("\n--- 3) 混合检索（最终喂给 Agent 的结果）---")
     for h in hybrid_search(query, 5):
-        print(f"  [{h['via']}] {h['text'][:70].replace(chr(10), ' ')}…")
+        src = h.get("cite") or h["source"]
+        print(f"  [{h['via']} | rrf={h.get('rrf_score', 0)}] {h['text'][:60].replace(chr(10), ' ')}…")
+        print(f"      出处: {src}")
 
 
 def main():
