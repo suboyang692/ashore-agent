@@ -11,6 +11,11 @@ DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen-plus")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 
+# 认证
+JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
+JWT_TTL = int(os.getenv("JWT_TTL", "604800"))          # 7 天
+REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "false").lower() in ("1", "true", "yes")
+
 # MySQL
 MYSQL_HOST = os.getenv("MYSQL_HOST", "127.0.0.1")
 MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))

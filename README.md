@@ -74,7 +74,7 @@ ashore/
 └── data/                  # 本地持久化（ChromaDB），不纳入版本管理
 ```
 
-## 数据模型（5 张表）
+## 数据模型（15 张表）
 
 | 表 | 作用 |
 |---|---|
@@ -83,6 +83,17 @@ ashore/
 | `user_mastery` | 学情画像：用户 × 知识点的练习次数、错误次数、掌握度 |
 | `eval_annotations` | 评测标注与 badcase |
 | `review_plans` | 复习计划（规划 Agent 产出） |
+| `users` | 用户身份、密码哈希、角色与状态 |
+| `conversations`、`conversation_messages` | 长期会话与消息记录；Redis 承担短期会话缓存 |
+| `practice_attempts`、`mistake_records` | 作答尝试与错因明细；现有答题流程同时保留旧表写入 |
+| `review_plan_items` | 可逐项完成的复习任务 |
+| `documents`、`document_versions`、`document_chunks` | 文档、版本、切片元数据；尚未接入现有入库流程 |
+| `jobs` | 异步任务表；尚未接入任务执行器 |
+
+认证接口包括 `/auth/register`、`/auth/login` 和 `/auth/me`；答题历史、错题与计划明细可通过
+`/attempts`、`/mistakes`、`/plan/{user_id}?include_items=true` 获取。当前保留旧接口兼容模式，
+不应将 `REQUIRE_AUTH=false` 用于公开部署；业务接口的鉴权覆盖和权限隔离仍需进一步收紧。
+`frontend/` 目前只有 React/Vite 配置脚手架，尚无可运行的 React 页面；已有页面仍是 `/ui/`。
 
 ## 快速开始
 
@@ -96,6 +107,7 @@ python db/init_db.py          # 建库建表
 python db/seed_questions.py   # 客观题种子数据
 python db/seed_subjective.py  # 主观题种子数据
 python db/migrate_question_type.py --apply   # 老库升级：清洗题型并收紧成 ENUM（新库可跳过）
+python db/migrate_enterprise.py              # 已有数据库升级到 15 张表；新库执行 init_db.py 即可
 
 python -m app.ingest          # 讲义切片入向量库
 
@@ -196,12 +208,12 @@ python -m app.api
 ## 测试
 
 ```bash
-pytest                          # 后端用例：114 条（另有 3 条真 Redis 联调，Redis 没起时自动 skip）
+pytest                          # 后端用例（真 Redis 联调在 Redis 未启动时自动 skip）
 pytest -m integration           # 只跑真 Redis 联调（需先 docker compose up -d redis）
 node tests/js/test_render.js    # 前端渲染用例：14 条（需 Node 18+）
 ```
 
-后端用例（`tests/`，共 117 条）：
+后端用例（`tests/`）：
 
 | 文件 | 覆盖内容 |
 |---|---|
@@ -218,6 +230,8 @@ node tests/js/test_render.js    # 前端渲染用例：14 条（需 Node 18+）
 | `test_session_summary.py` | 会话压缩：滚动摘要的合并/截断、压缩失败沿用旧摘要、摘要不回写成对话轮次、清会话时一起清摘要 |
 | `test_collect.py` | 真实作答采集：结构拼装、同题不同错法不算重复、合并时不碰其它键 |
 | `test_cache_integration.py` | 真 Redis 联调（Redis 没起时自动 skip）：后端判定、键类型是 List、TTL、版本号 |
+| `test_repositories.py`、`test_plan_service.py` | 新增数据仓储与计划任务服务 |
+| `test_auth.py` | 用户注册、登录与 Token 校验 |
 
 单元测试统一用 `tests/stubs.py` 里的假模型打桩，因此跑测试不消耗 API 额度、不依赖 MySQL。
 

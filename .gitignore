@@ -4,3 +4,5 @@ __pycache__/
 .venv/
 venv/
 data/
+frontend/node_modules/
+frontend/dist/
