@@ -10,7 +10,6 @@
     python -m app.planner_agent          # 默认 7 天
     python -m app.planner_agent 14       # 14 天
 """
-import json
 import re
 import sys
 from typing import TypedDict
@@ -18,8 +17,9 @@ from typing import TypedDict
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
 
-from app.db import execute, query_all
+from app.db import query_all
 from app.graph_agent import _model
+from app.services import plan_service
 
 DEFAULT_DAYS = 7
 
@@ -135,16 +135,11 @@ def plan_node(state: State):
 
 
 def save_node(state: State):
-    """计划落库：写入 review_plans。"""
-    plan = state["plan"]
-    plan_id = execute(
-        """INSERT INTO review_plans (user_id, days, summary, content)
-           VALUES (%s,%s,%s,%s)""",
-        (state["user_id"], state["days"], plan["summary"],
-         json.dumps(plan["days"], ensure_ascii=False)),
-    )
-    print(f"  [save] 计划已入库 review_plans.id={plan_id}")
-    return {"plan_id": plan_id}
+    """计划落库：主表 + 可追踪明细一起写。"""
+    result = plan_service.save_plan(state["user_id"], state["days"], state["plan"])
+    print(f"  [save] 计划已入库 review_plans.id={result['plan_id']}，"
+          f"展开明细 {result['item_count']} 条")
+    return {"plan_id": result["plan_id"]}
 
 
 def build_graph():

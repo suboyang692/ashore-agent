@@ -43,3 +43,26 @@ def test_fill_answer_fraction_with_spaces():
 def test_empty_answer_always_wrong():
     assert judge(_q("1/2", "填空"), "") == 0
     assert judge(_q("A"), "   ") == 0
+
+
+def test_submit_creates_attempt_and_mistake(monkeypatch):
+    from app import practice
+
+    calls = []
+    monkeypatch.setattr(practice.practice_repository, "create_attempt", lambda *args: 42)
+    monkeypatch.setattr(practice.practice_repository, "finish_attempt", lambda *args: calls.append(("finish", args)))
+    monkeypatch.setattr(practice.practice_repository, "add_mistake", lambda *args, **kwargs: calls.append(("mistake", args, kwargs)))
+    monkeypatch.setattr(practice, "execute", lambda *args, **kwargs: calls.append(("legacy", args, kwargs)))
+    monkeypatch.setattr(practice, "query_one", lambda sql, args=None: {
+        "total_count": 0, "wrong_count": 0, "mastery": 0.0,
+    })
+
+    question = {
+        "id": 7, "subject": "考研数学", "knowledge_point": "极限",
+        "question_type": "选择", "answer": "C",
+    }
+    result = practice.submit("u-1", question, "B")
+
+    assert result["attempt_id"] == 42
+    assert any(call[0] == "finish" for call in calls)
+    assert any(call[0] == "mistake" for call in calls)

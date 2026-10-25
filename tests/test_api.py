@@ -108,3 +108,41 @@ def test_submit_subjective_question_uses_grader(client, monkeypatch):
     body = client.post("/submit", json={"user_id": "u", "question_id": 2, "answer": "我的过程"}).json()
     assert body["type"] == "subjective"
     assert body["mistake_type"] == "结论跳跃"
+
+
+def test_attempts_returns_items(client, monkeypatch):
+    monkeypatch.setattr(api.practice_service, "list_attempts",
+                        lambda uid, limit, offset: [{"id": 1, "score": 45}])
+    body = client.get("/attempts?user_id=u").json()
+    assert body["items"] == [{"id": 1, "score": 45}]
+
+
+def test_attempt_detail_404_for_other_user(client, monkeypatch):
+    def boom(uid, aid):
+        raise LookupError("答题记录不存在或无权访问")
+
+    monkeypatch.setattr(api.practice_service, "get_attempt", boom)
+    assert client.get("/attempts/9?user_id=u").status_code == 404
+
+
+def test_mistakes_pass_filters(client, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(api.practice_service, "list_mistakes",
+                        lambda uid, kp, mt, limit, offset: seen.update(kp=kp, mt=mt) or [])
+    client.get("/mistakes?user_id=u&knowledge_point=极限&mistake_type=计算错误")
+    assert seen == {"kp": "极限", "mt": "计算错误"}
+
+
+def test_complete_plan_item(client, monkeypatch):
+    monkeypatch.setattr(api.plan_service, "complete_item",
+                        lambda uid, iid: {"id": iid, "status": "completed"})
+    body = client.post("/plan-items/5/complete?user_id=u").json()
+    assert body["status"] == "completed"
+
+
+def test_complete_plan_item_404(client, monkeypatch):
+    def boom(uid, iid):
+        raise LookupError("计划项不存在或无权访问")
+
+    monkeypatch.setattr(api.plan_service, "complete_item", boom)
+    assert client.post("/plan-items/5/complete?user_id=u").status_code == 404

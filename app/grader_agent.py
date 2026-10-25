@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from app.db import execute, query_one
 from app.graph_agent import _model
 from app.practice import _update_mastery
+from app.repositories import practice_repository
 from app.question_types import SOLUTION
 
 GRADER_SYSTEM = (
@@ -94,9 +95,12 @@ def grader_node(state: State):
 
 
 def persist_node(state: State):
-    """落库节点：写答题记录并更新学情画像。"""
+    """落库节点：答题尝试 + 错因明细 + 旧表 + 学情画像。"""
     q, g = state["question"], state["grade"]
     correct = 1 if g["score"] >= PASS_SCORE else 0
+    attempt_id = practice_repository.create_attempt(
+        state["user_id"], q["id"], state["user_answer"]
+    )
     execute(
         """INSERT INTO answer_records
            (user_id, question_id, user_answer, is_correct, score, mistake_type, mistake_detail)
@@ -104,8 +108,19 @@ def persist_node(state: State):
         (state["user_id"], q["id"], state["user_answer"], correct, g["score"],
          g["mistake_type"], g["comment"]),
     )
+    practice_repository.finish_attempt(attempt_id, g["score"], correct)
+    if g["mistake_type"] != "无错误":
+        practice_repository.add_mistake(
+            attempt_id,
+            g["mistake_type"],
+            knowledge_point=q["knowledge_point"],
+            original_text=state["user_answer"],
+            reason=g["comment"],
+            correct_method=q.get("answer"),
+        )
     _update_mastery(state["user_id"], q["subject"], q["knowledge_point"], correct)
-    return {}
+    g["attempt_id"] = attempt_id
+    return {"grade": g}
 
 
 def build_graph():

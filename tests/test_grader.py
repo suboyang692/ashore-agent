@@ -40,3 +40,52 @@ def test_mistake_types_cover_rubric():
     assert set(MISTAKE_TYPES) == {
         "计算错误", "方法误用", "审题错误", "结论跳跃", "知识点不熟", "表述不规范", "无错误",
     }
+
+def test_persist_writes_attempt_and_mistake(monkeypatch):
+    from app import grader_agent
+
+    calls = []
+    monkeypatch.setattr(grader_agent.practice_repository, "create_attempt", lambda *a: 7)
+    monkeypatch.setattr(grader_agent.practice_repository, "finish_attempt",
+                        lambda *a: calls.append(("finish", a)))
+    monkeypatch.setattr(grader_agent.practice_repository, "add_mistake",
+                        lambda *a, **k: calls.append(("mistake", a, k)))
+    monkeypatch.setattr(grader_agent, "execute", lambda *a, **k: calls.append(("legacy", a, k)))
+    monkeypatch.setattr(grader_agent, "_update_mastery", lambda *a: calls.append(("mastery", a)))
+
+    state = {
+        "user_id": "u-1",
+        "question": {"id": 3, "subject": "考研数学", "knowledge_point": "极限",
+                     "answer": "1/2"},
+        "user_answer": "我的过程",
+        "grade": {"score": 40, "mistake_type": "结论跳跃", "comment": "评语", "suggestion": "建议"},
+    }
+    out = grader_agent.persist_node(state)
+
+    assert out["grade"]["attempt_id"] == 7
+    assert any(c[0] == "finish" for c in calls)
+    assert any(c[0] == "mistake" for c in calls)
+    assert any(c[0] == "legacy" for c in calls)
+
+
+def test_persist_skips_mistake_when_no_error(monkeypatch):
+    from app import grader_agent
+
+    calls = []
+    monkeypatch.setattr(grader_agent.practice_repository, "create_attempt", lambda *a: 8)
+    monkeypatch.setattr(grader_agent.practice_repository, "finish_attempt", lambda *a: None)
+    monkeypatch.setattr(grader_agent.practice_repository, "add_mistake",
+                        lambda *a, **k: calls.append("mistake"))
+    monkeypatch.setattr(grader_agent, "execute", lambda *a, **k: None)
+    monkeypatch.setattr(grader_agent, "_update_mastery", lambda *a: None)
+
+    state = {
+        "user_id": "u-1",
+        "question": {"id": 3, "subject": "考研数学", "knowledge_point": "极限", "answer": "1/2"},
+        "user_answer": "正确过程",
+        "grade": {"score": 95, "mistake_type": "无错误", "comment": "无", "suggestion": "保持"},
+    }
+    out = grader_agent.persist_node(state)
+
+    assert out["grade"]["attempt_id"] == 8
+    assert calls == []

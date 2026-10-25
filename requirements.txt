@@ -13,3 +13,4 @@ langgraph
 redis
 langchain-openai
 pytest
+bcrypt

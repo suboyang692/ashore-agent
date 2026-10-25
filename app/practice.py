@@ -10,6 +10,7 @@ import re
 
 from app.db import execute, query_all, query_one
 from app.question_types import OBJECTIVE_TYPES, is_choice, is_subjective
+from app.repositories import practice_repository
 
 
 def normalize(text: str) -> str:
@@ -65,6 +66,7 @@ def pick_question(user_id: str, knowledge_point=None):
 def submit(user_id: str, question: dict, user_answer: str) -> dict:
     """判分 -> 写答题记录 -> 更新学情画像，返回本次结果。"""
     correct = judge(question, user_answer)
+    attempt_id = practice_repository.create_attempt(user_id, question["id"], user_answer)
     execute(
         """INSERT INTO answer_records
            (user_id, question_id, user_answer, is_correct, score, mistake_type)
@@ -72,12 +74,22 @@ def submit(user_id: str, question: dict, user_answer: str) -> dict:
         (user_id, question["id"], user_answer, correct, 100 if correct else 0,
          None if correct else "知识点不熟"),
     )
+    practice_repository.finish_attempt(attempt_id, 100 if correct else 0, correct)
+    if not correct:
+        practice_repository.add_mistake(
+            attempt_id,
+            "知识点不熟",
+            knowledge_point=question["knowledge_point"],
+            original_text=user_answer,
+            reason="客观题答案与标准答案不一致",
+            correct_method=f"复习知识点：{question['knowledge_point']}",
+        )
     _update_mastery(user_id, question["subject"], question["knowledge_point"], correct)
     mastery = query_one(
         "SELECT total_count, wrong_count, mastery FROM user_mastery WHERE user_id=%s AND knowledge_point=%s",
         (user_id, question["knowledge_point"]),
     )
-    return {"correct": correct, "mastery": mastery}
+    return {"correct": correct, "mastery": mastery, "attempt_id": attempt_id}
 
 
 def _update_mastery(user_id: str, subject: str, kp: str, correct: int) -> None:

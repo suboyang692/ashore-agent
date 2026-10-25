@@ -55,7 +55,7 @@ def main():
     try:
         _exec_statements(conn2, schema_path.read_text(encoding="utf-8"))
         conn2.commit()
-        print("[ok] 四张核心表已创建：questions / answer_records / user_mastery / eval_annotations")
+        print("[ok] 核心表已创建：题库、答题、学情、计划、评测，以及用户/会话/文档/任务表")
         with conn2.cursor() as cur:
             cur.execute("SHOW TABLES")
             for row in cur.fetchall():
