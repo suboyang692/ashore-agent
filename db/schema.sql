@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
   conversation_id BIGINT NOT NULL,
   role ENUM('system','user','assistant','tool') NOT NULL,
   content LONGTEXT NOT NULL,
+  response_data JSON NULL,
   agent_name VARCHAR(64) NULL,
   tool_name VARCHAR(64) NULL,
   request_id VARCHAR(64) NULL,

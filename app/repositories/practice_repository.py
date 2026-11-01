@@ -69,7 +69,7 @@ def get_attempt_detail(attempt_id: int, user_id: str):
 
 def list_mistakes(user_id: str, knowledge_point=None, mistake_type=None,
                   limit: int = 20, offset: int = 0):
-    sql = """SELECT m.*, a.question_id, a.score, a.submitted_at, q.stem
+    sql = """SELECT m.*, a.question_id, a.score, a.submitted_at, q.stem, q.question_type
              FROM mistake_records m
              JOIN practice_attempts a ON a.id = m.attempt_id
              JOIN questions q ON q.id = a.question_id

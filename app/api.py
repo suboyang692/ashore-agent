@@ -9,6 +9,7 @@
 接口一览:
     GET  /health              健康检查
     POST /chat                路由入口（答疑 / 出题 / 批改 / 规划），带 question_id 时视为提交作答
+    POST /chat/stream         SSE 流式路由入口（答疑逐 token 返回）
     POST /quiz                直接出题
     POST /plan                直接生成复习计划
     GET  /questions/next      取下一道未做过的题（不返回答案）
@@ -25,6 +26,7 @@ import json
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -37,11 +39,11 @@ from app.repositories import plan_repository
 from app.question_types import is_subjective, normalize_question_type
 from app.quiz_agent import generate_quiz
 from app.retriever import cached_hybrid_search
-from app.router_agent import public_question, route
+from app.router_agent import public_question, route, stream_route
 from app.config import REQUIRE_AUTH
 from app.repositories import user_repository
 from app.security import decode_token
-from app.services import auth_service, plan_service, practice_service
+from app.services import auth_service, conversation_service, plan_service, practice_service
 
 app = FastAPI(
     title="研岸 Ashore API",
@@ -59,6 +61,7 @@ class ChatRequest(BaseModel):
     user_id: str = Field(default="default", description="用户标识")
     message: str = Field(description="用户消息；带 question_id 时视为考生作答内容")
     question_id: int | None = Field(default=None, description="配合批改使用，指定题目 id")
+    conversation_id: int | None = Field(default=None, description="指定持久化会话；不传保持旧接口行为")
 
 
 class QuizRequest(BaseModel):
@@ -107,6 +110,19 @@ def _resolve_user(requested: str, authorization: str | None,
     return requested
 
 
+def _agent_error_message(error: Exception) -> str:
+    """把供应商异常收敛成学生能理解、且不泄露内部结构的提示。"""
+    text = str(error)
+    lower = text.lower()
+    if "arrearage" in lower or "overdue-payment" in lower or "access denied" in lower:
+        return "模型服务暂时不可用：百炼账户余额不足或状态异常，请检查账户后重试。"
+    if "timeout" in lower or "超时" in text:
+        return "模型服务响应超时，请稍后重试。"
+    if "rate limit" in lower or "429" in text:
+        return "请求过于频繁，请稍后重试。"
+    return "处理失败，请稍后重试。"
+
+
 @app.post("/auth/register")
 def register(req: RegisterRequest):
     """注册并直接签发 Token。"""
@@ -149,7 +165,7 @@ def root():
         "docs": "/docs",
         "ui": "/ui/",
         "endpoints": [
-            "/chat", "/quiz", "/plan", "/questions/next",
+            "/chat", "/chat/stream", "/quiz", "/plan", "/questions/next",
             "/submit", "/profile/{user_id}", "/plan/{user_id}", "/kb/search",
             "/cache/stats", "/health", "/attempts", "/mistakes",
         ],
@@ -162,13 +178,102 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/conversations")
+def conversations(authorization: str | None = Header(default=None)):
+    user_id = _resolve_user("", authorization, require_token=True)
+    return {"items": conversation_service.list_conversations(user_id)}
+
+
+@app.post("/conversations")
+def create_conversation(authorization: str | None = Header(default=None)):
+    user_id = _resolve_user("", authorization, require_token=True)
+    conversation_id = conversation_service.start_conversation(user_id)
+    return conversation_service.get_conversation(conversation_id, user_id)
+
+
+@app.get("/conversations/{conversation_id}/messages")
+def conversation_messages(conversation_id: int, authorization: str | None = Header(default=None)):
+    user_id = _resolve_user("", authorization, require_token=True)
+    try:
+        return {"items": conversation_service.get_messages(conversation_id, user_id, limit=100)}
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+
+
+@app.delete("/conversations")
+def clear_conversations(authorization: str | None = Header(default=None)):
+    user_id = _resolve_user("", authorization, require_token=True)
+    return {"deleted": conversation_service.clear_conversations(user_id)}
+
+
+@app.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: int, authorization: str | None = Header(default=None)):
+    user_id = _resolve_user("", authorization, require_token=True)
+    try:
+        return {"deleted": conversation_service.delete_conversation(conversation_id, user_id)}
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+
+
 @app.post("/chat")
-def chat(req: ChatRequest):
+def chat(req: ChatRequest, authorization: str | None = Header(default=None)):
     """路由入口：一句话交给路由 Agent 决定走答疑 / 出题 / 批改 / 规划。"""
     try:
-        return route(req.user_id, req.message, req.question_id)
+        user_id = _resolve_user(req.user_id, authorization, require_token=req.conversation_id is not None)
+        memory_key = user_id
+        if req.conversation_id is not None:
+            memory_key = conversation_service.restore_memory(req.conversation_id, user_id)
+        if req.conversation_id is None:
+            result = route(user_id, req.message, req.question_id)
+        else:
+            result = route(user_id, req.message, req.question_id, memory_key=memory_key)
+        if req.conversation_id is not None:
+            conversation_service.save_turn(req.conversation_id, user_id, req.message, result)
+        return result
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"处理失败：{e}")
+        print(f"[chat] {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=_agent_error_message(e))
+
+
+def _sse(data: dict) -> str:
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest, authorization: str | None = Header(default=None)):
+    """流式答疑：SSE 输出 token、元信息、来源和最终结果。"""
+    user_id = _resolve_user(req.user_id, authorization, require_token=req.conversation_id is not None)
+    memory_key = user_id
+    if req.conversation_id is not None:
+        try:
+            memory_key = conversation_service.restore_memory(req.conversation_id, user_id)
+        except LookupError as error:
+            raise HTTPException(status_code=404, detail=str(error))
+    async def events():
+        try:
+            if req.conversation_id is None:
+                stream = stream_route(user_id, req.message, req.question_id)
+            else:
+                stream = stream_route(user_id, req.message, req.question_id, memory_key=memory_key)
+            async for event in stream:
+                if event["type"] == "done" and req.conversation_id is not None:
+                    conversation_service.save_turn(req.conversation_id, user_id, req.message, event["result"])
+                yield _sse(event)
+        except Exception as e:
+            print(f"[chat/stream] {type(e).__name__}: {e}")
+            yield _sse({"type": "error", "message": _agent_error_message(e)})
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/quiz")
@@ -178,7 +283,8 @@ def quiz(req: QuizRequest):
         before = query_one("SELECT COALESCE(MAX(id), 0) AS m FROM questions")["m"]
         r = generate_quiz(req.user_id, req.knowledge_point)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"出题失败：{e}")
+        print(f"[quiz] {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=_agent_error_message(e))
     rows = query_all("SELECT * FROM questions WHERE id > %s ORDER BY id", (before,))
     return {
         "knowledge_point": r["knowledge_point"],
@@ -193,7 +299,8 @@ def plan(req: PlanRequest):
     try:
         r = make_plan(req.user_id, req.days)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"规划失败：{e}")
+        print(f"[plan] {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=_agent_error_message(e))
     return {
         "plan_id": r["plan_id"],
         "days": req.days,
@@ -203,7 +310,8 @@ def plan(req: PlanRequest):
 
 
 @app.get("/questions/next")
-def next_question(user_id: str = "default", question_type: str = ""):
+def next_question(user_id: str = "default", question_type: str = "",
+                  knowledge_point: str = ""):
     """取一道该用户没做过的题（不返回答案与解析）。"""
     sql = """SELECT q.* FROM questions q
              LEFT JOIN answer_records a ON a.question_id = q.id AND a.user_id = %s
@@ -216,6 +324,9 @@ def next_question(user_id: str = "default", question_type: str = ""):
             raise HTTPException(status_code=400, detail=str(e))
         sql += " AND q.question_type = %s"
         args.append(question_type)
+    if knowledge_point.strip():
+        sql += " AND q.knowledge_point = %s"
+        args.append(knowledge_point.strip())
     q = query_one(sql + " ORDER BY RAND() LIMIT 1", args)
     if not q:
         raise HTTPException(status_code=404, detail="没有未做过的题目了")

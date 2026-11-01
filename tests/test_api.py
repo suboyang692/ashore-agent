@@ -44,7 +44,23 @@ def test_chat_turns_agent_failure_into_500(client, monkeypatch):
     monkeypatch.setattr(api, "route", boom)
     r = client.post("/chat", json={"user_id": "u", "message": "x"})
     assert r.status_code == 500
-    assert "LLM 超时" in r.json()["detail"]
+    assert "超时" in r.json()["detail"]
+
+
+def test_chat_hides_provider_billing_json(client, monkeypatch):
+    def boom(uid, msg, qid=None):
+        raise RuntimeError(
+            "Error code: 400 - {'error': {'message': 'Access denied', "
+            "'code': 'Arrearage', 'type': 'Arrearage'}}"
+        )
+
+    monkeypatch.setattr(api, "route", boom)
+    r = client.post("/chat", json={"user_id": "u", "message": "x"})
+    detail = r.json()["detail"]
+
+    assert "百炼账户" in detail
+    assert "Arrearage" not in detail
+    assert "'error'" not in detail
 
 
 def test_chat_rejects_empty_body(client):
@@ -83,6 +99,22 @@ def test_submit_404_for_missing_question(client, monkeypatch):
     monkeypatch.setattr(api, "query_one", lambda sql, args=None: None)
     r = client.post("/submit", json={"user_id": "u", "question_id": 1, "answer": "A"})
     assert r.status_code == 404
+
+
+def test_next_question_filters_by_knowledge_point(client, monkeypatch):
+    seen = {}
+
+    def fake_query_one(sql, args=None):
+        seen.update(sql=sql, args=args)
+        return {"id": 7, "knowledge_point": "定积分", "question_type": "填空",
+                "stem": "题干", "difficulty": 2}
+
+    monkeypatch.setattr(api, "query_one", fake_query_one)
+    body = client.get("/questions/next?user_id=u&knowledge_point=定积分").json()
+
+    assert body["knowledge_point"] == "定积分"
+    assert "q.knowledge_point = %s" in seen["sql"]
+    assert "定积分" in seen["args"]
 
 
 def test_submit_objective_question_uses_objective_judging(client, monkeypatch):

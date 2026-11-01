@@ -1,9 +1,8 @@
 """研岸：文本向量化（阿里云百炼 DashScope Embedding，OpenAI 兼容接口）。"""
 from openai import OpenAI
 
-from app.config import DASHSCOPE_API_KEY, LLM_BASE_URL
+from app.config import DASHSCOPE_API_KEY, EMBED_MODEL, LLM_BASE_URL
 
-EMBED_MODEL = "text-embedding-v3"
 BATCH = 10  # 百炼单次批量上限较小，分批调用
 
 _client = None

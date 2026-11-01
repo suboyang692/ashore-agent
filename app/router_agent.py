@@ -9,6 +9,7 @@
 用法: python -m app.router_agent
 """
 import sys
+import asyncio
 from typing import Literal
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -17,7 +18,7 @@ from pydantic import BaseModel, Field
 from app import cache
 from app.db import query_one
 from app.grader_agent import grade_subjective, pick_subjective
-from app.graph_agent import _model, answer_question
+from app.graph_agent import _model, answer_question, stream_answer_question
 from app.planner_agent import DEFAULT_DAYS, make_plan
 from app.quiz_agent import generate_quiz
 
@@ -163,6 +164,19 @@ def public_question(q: dict) -> dict:
     }
 
 
+def _qa_data(decision: RouteDecision, sources: list) -> dict:
+    data = {
+        "knowledge_point": decision.knowledge_point,
+        "sources": sources,
+    }
+    if decision.knowledge_point:
+        data["next_action"] = {
+            "type": "practice",
+            "knowledge_point": decision.knowledge_point,
+        }
+    return data
+
+
 def _grade(user_id: str, question_id: int, user_answer: str) -> dict:
     """指定了题目时直接批改（message 视为考生作答）。"""
     q = query_one("SELECT * FROM questions WHERE id=%s", (question_id,))
@@ -179,18 +193,20 @@ def _grade(user_id: str, question_id: int, user_answer: str) -> dict:
     }
 
 
-def route(user_id: str = "default", message: str = "", question_id: int | None = None) -> dict:
+def route(user_id: str = "default", message: str = "", question_id: int | None = None,
+          decision: RouteDecision | None = None, memory_key: str | None = None) -> dict:
     """路由入口：返回 {intent, reply, data}。"""
     if question_id is not None:
         return _grade(user_id, question_id, message)
 
-    decision = classify(message)
+    decision = decision or classify(message)
     print(f"  [router] 意图={decision.intent} 知识点={decision.knowledge_point or '-'}")
 
     if decision.intent == "qa":
-        r = answer_question(message, _history(user_id))
-        _remember(user_id, r["messages"])
-        return {"intent": "qa", "reply": r["answer"], "data": {}}
+        r = answer_question(message, _history(memory_key or user_id))
+        _remember(memory_key or user_id, r["messages"])
+        data = _qa_data(decision, r.get("sources", []))
+        return {"intent": "qa", "reply": r["answer"], "data": data}
 
     if decision.intent == "quiz":
         r = generate_quiz(user_id, decision.knowledge_point)
@@ -224,6 +240,58 @@ def route(user_id: str = "default", message: str = "", question_id: int | None =
         "reply": decision.reply or "我在，随时可以问我考研数学的问题。",
         "data": {},
     }
+
+
+async def stream_route(user_id: str = "default", message: str = "",
+                       question_id: int | None = None, memory_key: str | None = None):
+    """流式路由入口：答疑逐 token 输出，其他意图在一次完成后返回整段结果。"""
+    if question_id is not None:
+        result = await asyncio.to_thread(route, user_id, message, question_id)
+        yield {"type": "done", "result": result}
+        return
+
+    decision = await asyncio.to_thread(classify, message)
+    print(f"  [router] 意图={decision.intent} 知识点={decision.knowledge_point or '-'}")
+    yield {
+        "type": "meta",
+        "intent": decision.intent,
+        "knowledge_point": decision.knowledge_point,
+    }
+
+    if decision.intent != "qa":
+        result = await asyncio.to_thread(route, user_id, message, None, decision)
+        if result.get("reply"):
+            yield {"type": "token", "text": result["reply"]}
+        yield {"type": "done", "result": result}
+        return
+
+    history = _history(memory_key or user_id)
+    completed = None
+    async for event in stream_answer_question(message, history):
+        if event["type"] == "token":
+            yield event
+        else:
+            completed = event
+
+    if completed is not None:
+        _remember(memory_key or user_id, completed["messages"])
+    else:
+        completed = {
+            "answer": "",
+            "messages": history + [
+                HumanMessage(content=message),
+                AIMessage(content=""),
+            ],
+            "sources": [],
+        }
+
+    answer = completed.get("answer") or "模型没有返回内容，请重新提问。"
+    result = {
+        "intent": "qa",
+        "reply": answer,
+        "data": _qa_data(decision, completed.get("sources", [])),
+    }
+    yield {"type": "done", "result": result}
 
 
 def main():

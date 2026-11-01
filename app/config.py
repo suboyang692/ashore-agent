@@ -10,6 +10,7 @@ load_dotenv(BASE_DIR / ".env")
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen-plus")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "text-embedding-v3")
 
 # 认证
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")

@@ -29,6 +29,9 @@ def main():
     try:
         _exec_statements(conn, schema)
         with conn.cursor() as cur:
+            cur.execute("SHOW COLUMNS FROM conversation_messages LIKE 'response_data'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE conversation_messages ADD COLUMN response_data JSON NULL AFTER content")
             cur.execute(
                 "INSERT IGNORE INTO users (id, username, role, status) VALUES (%s, %s, 'student', 'active')",
                 ("default", "default"),

@@ -93,9 +93,26 @@ ashore/
 认证接口包括 `/auth/register`、`/auth/login` 和 `/auth/me`；答题历史、错题与计划明细可通过
 `/attempts`、`/mistakes`、`/plan/{user_id}?include_items=true` 获取。当前保留旧接口兼容模式，
 不应将 `REQUIRE_AUTH=false` 用于公开部署；业务接口的鉴权覆盖和权限隔离仍需进一步收紧。
-`frontend/` 目前只有 React/Vite 配置脚手架，尚无可运行的 React 页面；已有页面仍是 `/ui/`。
+`frontend/` 已有可运行的 React 登录、答疑、练习与错题页面；规划、学情仍指向旧版操作台。
 
 ## 快速开始
+
+React 前端位于 `frontend/`：已有登录/注册、答疑（结构化出处与知识点练习入口）、练习、错题和响应式导航；规划、学情入口暂时指向旧版操作台。后端需单独启动，Vite 将 `/api` 请求代理到 `127.0.0.1:8000`：
+
+设计系统与组件规则见根目录 [`DESIGN.md`](DESIGN.md)。
+
+```powershell
+# 终端 1：在项目根目录
+python -m app.api
+
+# 终端 2：在项目根目录
+cd frontend
+npm install
+npm run dev
+# 浏览器打开 http://localhost:5173
+```
+
+前端会话暂存于浏览器 `sessionStorage`；当前 `/chat` 接口仍是旧兼容模式，不应将此框架作为公开多用户部署版本。
 
 ```bash
 python -m venv venv
@@ -138,6 +155,36 @@ python -m app.api
 #   操作界面  http://127.0.0.1:8000/ui/
 #   接口文档  http://127.0.0.1:8000/docs
 ```
+
+## 答疑答案块
+
+答疑接口 `/chat` 在 `qa` 分支会额外返回结构化信息：
+
+- `data.knowledge_point`：本次问题识别出的知识点，未识别时为空字符串；
+- `data.sources`：本次检索片段，包含 `source`、`page`、`cite`、`excerpt` 与 `cited`；
+- `data.next_action`：知识点存在时给出练习去向，前端生成“练一道「知识点」题”。
+
+`cited` 只标记回答“来源：”行中能对应回本次检索的条目，不会把未出现的片段伪装成引用。
+前端默认展示知识点与引用文件名/页码，原文摘录折叠；没有检索结果时不显示空壳出处区。
+练习页通过 `/questions/next?knowledge_point=...` 按知识点取题，取不到时保留明确空状态。
+
+网页答疑使用 `POST /chat/stream` 的 SSE 流式接口：先返回意图元信息，再逐段输出回答文本，
+结束时一次性补齐 `sources`、知识点与练习入口。旧接口 `POST /chat` 保留，供脚本和兼容调用使用。
+
+## 模型与免费额度
+
+聊天模型通过 `.env` 的 `LLM_MODEL` 切换，代码不需要改。请以百炼控制台当前标注的免费额度、
+地域和 Function Calling 支持为准，不要假设某个模型会永久免费。推荐流程：
+
+```powershell
+# 先在百炼控制台结清欠费，并确认所选模型可用
+python -m app.inspect_llm
+python -m app.inspect_llm --live --tools
+```
+
+自检会验证文本调用和工具调用；如果返回 `Arrearage`，说明账户仍未解除欠费状态，换模型也不会绕过。
+向量检索由 `EMBED_MODEL` 控制，默认仍是百炼的 `text-embedding-v3`；如果改 Embedding 模型，
+必须重新执行知识库入库，否则旧向量和新模型不兼容。OCR 的 `qwen-vl-max` 只影响重新转录 PDF。
 
 ## 题型枚举（为什么单独抽一个模块）
 
