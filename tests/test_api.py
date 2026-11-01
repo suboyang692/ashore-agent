@@ -6,11 +6,20 @@ pytest.importorskip("httpx", reason="FastAPI TestClient 需要 httpx")
 from fastapi.testclient import TestClient
 
 from app import api
+from app.security import create_token
 
 
 @pytest.fixture
-def client():
-    return TestClient(api.app)
+def client(monkeypatch):
+    monkeypatch.setattr(
+        api.user_repository, "get_by_id",
+        lambda uid: {"id": uid, "username": uid, "email": None,
+                     "role": "student", "status": "active"},
+    )
+    return TestClient(
+        api.app,
+        headers={"Authorization": f"Bearer {create_token('u')}"},
+    )
 
 
 def test_health(client):
@@ -81,7 +90,7 @@ def test_profile_reports_weak_points(client, monkeypatch):
 
 def test_latest_plan_404_when_absent(client, monkeypatch):
     monkeypatch.setattr(api, "query_one", lambda sql, args=None: None)
-    assert client.get("/plan/nobody").status_code == 404
+    assert client.get("/plan/u").status_code == 404
 
 
 def test_latest_plan_parses_schedule_json(client, monkeypatch):

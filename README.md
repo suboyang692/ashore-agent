@@ -74,7 +74,7 @@ ashore/
 └── data/                  # 本地持久化（ChromaDB），不纳入版本管理
 ```
 
-## 数据模型（15 张表）
+## 数据模型（16 张表）
 
 | 表 | 作用 |
 |---|---|
@@ -89,15 +89,17 @@ ashore/
 | `review_plan_items` | 可逐项完成的复习任务 |
 | `documents`、`document_versions`、`document_chunks` | 文档、版本、切片元数据；尚未接入现有入库流程 |
 | `jobs` | 异步任务表；尚未接入任务执行器 |
+| `audit_logs` | 管理员操作、登录成功/失败与安全事件审计 |
 
-认证接口包括 `/auth/register`、`/auth/login` 和 `/auth/me`；答题历史、错题与计划明细可通过
-`/attempts`、`/mistakes`、`/plan/{user_id}?include_items=true` 获取。当前保留旧接口兼容模式，
-不应将 `REQUIRE_AUTH=false` 用于公开部署；业务接口的鉴权覆盖和权限隔离仍需进一步收紧。
-`frontend/` 已有可运行的 React 登录、答疑、练习与错题页面；规划、学情仍指向旧版操作台。
+业务接口默认强制 Bearer Token，登录用户只能访问自己的数据，管理员可跨用户查询。
+`/admin/overview`、`/admin/users` 以及用户状态/角色修改接口提供最小管理能力，并写入
+`audit_logs`。`/metrics` 提供 Prometheus 文本指标，`/ready` 检查数据库与缓存就绪状态。
+`frontend/` 已覆盖登录、答疑、练习、错题、规划和学情；管理员登录后会额外看到
+`/admin` 入口，可查看运行概览、最近审计和用户列表，并调整用户角色与状态。
 
 ## 快速开始
 
-React 前端位于 `frontend/`：已有登录/注册、答疑（结构化出处与知识点练习入口）、练习、错题和响应式导航；规划、学情入口暂时指向旧版操作台。后端需单独启动，Vite 将 `/api` 请求代理到 `127.0.0.1:8000`：
+React 前端位于 `frontend/`：包含登录/注册、答疑（结构化出处与知识点练习入口）、练习、错题、规划和学情，并支持响应式导航。本地开发时 Vite 将 `/api` 请求代理到 `127.0.0.1:8000`：
 
 设计系统与组件规则见根目录 [`DESIGN.md`](DESIGN.md)。
 
@@ -112,7 +114,19 @@ npm run dev
 # 浏览器打开 http://localhost:5173
 ```
 
-前端会话暂存于浏览器 `sessionStorage`；当前 `/chat` 接口仍是旧兼容模式，不应将此框架作为公开多用户部署版本。
+登录凭证暂存于浏览器 `sessionStorage`，所有业务请求都会携带 Bearer Token；后端默认强制鉴权，
+并对聊天、出题、规划、检索和提交接口启用固定窗口限流。
+
+生产入口使用 `docker-compose.prod.yml`：前端由 Nginx 提供静态资源并把 `/api/` 反向代理到
+FastAPI，MySQL/Redis/应用端口不直接暴露到宿主机。先在 `.env` 中设置
+`JWT_SECRET`、`MYSQL_ROOT_PASSWORD` 和 `DASHSCOPE_API_KEY`，再执行：
+
+```powershell
+docker compose -f docker-compose.prod.yml up -d --build
+# 默认访问 http://localhost/
+```
+
+生产环境应在外层负载均衡或反向代理上配置 HTTPS；`/metrics` 只应在内部网络暴露。
 
 ```bash
 python -m venv venv
@@ -124,7 +138,7 @@ python db/init_db.py          # 建库建表
 python db/seed_questions.py   # 客观题种子数据
 python db/seed_subjective.py  # 主观题种子数据
 python db/migrate_question_type.py --apply   # 老库升级：清洗题型并收紧成 ENUM（新库可跳过）
-python db/migrate_enterprise.py              # 已有数据库升级到 15 张表；新库执行 init_db.py 即可
+python db/migrate_enterprise.py              # 已有数据库升级到 16 张表；新库执行 init_db.py 即可
 
 python -m app.ingest          # 讲义切片入向量库
 
@@ -154,6 +168,8 @@ python eval/collect.py        # 采集自己的真实作答，补进评测集（
 python -m app.api
 #   操作界面  http://127.0.0.1:8000/ui/
 #   接口文档  http://127.0.0.1:8000/docs
+#   就绪检查  http://127.0.0.1:8000/ready
+#   指标      http://127.0.0.1:8000/metrics
 ```
 
 ## 答疑答案块

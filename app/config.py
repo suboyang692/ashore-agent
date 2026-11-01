@@ -15,7 +15,14 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "text-embedding-v3")
 # 认证
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
 JWT_TTL = int(os.getenv("JWT_TTL", "604800"))          # 7 天
-REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "false").lower() in ("1", "true", "yes")
+REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "true").lower() in ("1", "true", "yes")
+
+# 限流（Redis 固定窗口，Redis 不可用时自动走进程内实现）
+RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "true").lower() in ("1", "true", "yes")
+RATE_LIMIT_CHAT_PER_MIN = int(os.getenv("RATE_LIMIT_CHAT_PER_MIN", "20"))
+RATE_LIMIT_AGENT_PER_MIN = int(os.getenv("RATE_LIMIT_AGENT_PER_MIN", "5"))
+RATE_LIMIT_SEARCH_PER_MIN = int(os.getenv("RATE_LIMIT_SEARCH_PER_MIN", "30"))
+RATE_LIMIT_SUBMIT_PER_MIN = int(os.getenv("RATE_LIMIT_SUBMIT_PER_MIN", "20"))
 
 # MySQL
 MYSQL_HOST = os.getenv("MYSQL_HOST", "127.0.0.1")

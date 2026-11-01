@@ -93,7 +93,13 @@ def test_me_returns_current_user(client, monkeypatch):
     assert body["id"] == "u-1"
 
 
-def test_token_cannot_read_other_users_data(client):
+def test_token_cannot_read_other_users_data(client, monkeypatch):
+    from app import api
+    monkeypatch.setattr(
+        api.user_repository, "get_by_id",
+        lambda uid: {"id": uid, "username": uid, "email": None,
+                     "role": "student", "status": "active"},
+    )
     token = create_token("u-1")
     r = client.get("/attempts?user_id=u-2", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403

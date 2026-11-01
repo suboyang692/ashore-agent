@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessageChunk
 
 from app import api, graph_agent, qa_agent, router_agent
+from app.security import create_token
 from tests.stubs import FakeMessage
 
 
@@ -131,7 +132,15 @@ def test_chat_stream_endpoint_returns_sse(monkeypatch):
         yield {"type": "done", "result": {"intent": "qa", "reply": "答", "data": {}}}
 
     monkeypatch.setattr(api, "stream_route", fake_stream)
-    client = TestClient(api.app)
+    monkeypatch.setattr(
+        api.user_repository, "get_by_id",
+        lambda uid: {"id": uid, "username": uid, "email": None,
+                     "role": "student", "status": "active"},
+    )
+    client = TestClient(
+        api.app,
+        headers={"Authorization": f"Bearer {create_token('u')}"},
+    )
 
     response = client.post("/chat/stream", json={"user_id": "u", "message": "问题"})
 
@@ -147,7 +156,15 @@ def test_chat_stream_hides_provider_error(monkeypatch):
         yield  # pragma: no cover
 
     monkeypatch.setattr(api, "stream_route", failing_stream)
-    client = TestClient(api.app)
+    monkeypatch.setattr(
+        api.user_repository, "get_by_id",
+        lambda uid: {"id": uid, "username": uid, "email": None,
+                     "role": "student", "status": "active"},
+    )
+    client = TestClient(
+        api.app,
+        headers={"Authorization": f"Bearer {create_token('u')}"},
+    )
 
     response = client.post("/chat/stream", json={"user_id": "u", "message": "问题"})
 

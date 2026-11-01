@@ -34,3 +34,9 @@ jobs:
 
       - name: 前端渲染用例（从 web/index.html 抽取真实实现执行）
         run: node tests/js/test_render.js
+
+      - name: 前端安装与生产构建
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build

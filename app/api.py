@@ -24,13 +24,14 @@
 """
 import json
 from pathlib import Path
+from typing import Literal
 
-from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import cache
+from app import cache, rate_limit
 from app.db import query_all, query_one
 from app.grader_agent import grade_subjective
 from app.planner_agent import DEFAULT_DAYS, make_plan
@@ -40,16 +41,31 @@ from app.question_types import is_subjective, normalize_question_type
 from app.quiz_agent import generate_quiz
 from app.retriever import cached_hybrid_search
 from app.router_agent import public_question, route, stream_route
-from app.config import REQUIRE_AUTH
-from app.repositories import user_repository
+from app.config import (
+    RATE_LIMIT_AGENT_PER_MIN,
+    RATE_LIMIT_CHAT_PER_MIN,
+    RATE_LIMIT_SEARCH_PER_MIN,
+    RATE_LIMIT_SUBMIT_PER_MIN,
+    REQUIRE_AUTH,
+)
+from app.observability import configure_logging, http_middleware, metrics_text
+from app.repositories import audit_repository, user_repository
 from app.security import decode_token
-from app.services import auth_service, conversation_service, plan_service, practice_service
+from app.services import (
+    audit_service,
+    auth_service,
+    conversation_service,
+    plan_service,
+    practice_service,
+)
 
 app = FastAPI(
     title="研岸 Ashore API",
     version="1.0.0",
     description="考研数学多智能体备考助手：答疑 / 出题 / 批改 / 规划",
 )
+configure_logging()
+app.middleware("http")(http_middleware)
 
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -91,9 +107,17 @@ class SubmitRequest(BaseModel):
     answer: str
 
 
+class UserStatusRequest(BaseModel):
+    status: Literal["active", "disabled"]
+
+
+class UserRoleRequest(BaseModel):
+    role: Literal["student", "admin"]
+
+
 def _resolve_user(requested: str, authorization: str | None,
                   require_token: bool = False) -> str:
-    """有 Token 就以 Token 为准；没开强制登录时兼容旧 user_id 参数。"""
+    """Resolve and validate the acting user; admins may target other users."""
     if authorization:
         scheme, _, token = authorization.partition(" ")
         if scheme.lower() != "bearer":
@@ -102,12 +126,48 @@ def _resolve_user(requested: str, authorization: str | None,
         if not payload:
             raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
         user_id = payload.get("sub")
-        if requested and requested != user_id:
-            raise HTTPException(status_code=403, detail="无权访问其他用户的数据")
-        return user_id
+        if not user_id:
+            raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
+        user = user_repository.get_by_id(user_id)
+        if not user or user.get("status") != "active":
+            raise HTTPException(status_code=401, detail="账号不存在或已被禁用")
+        if not requested or requested == "default" or requested == user_id:
+            return user_id
+        if requested != user_id:
+            if user.get("role") != "admin":
+                raise HTTPException(status_code=403, detail="无权访问其他用户的数据")
+            return requested
     if require_token or REQUIRE_AUTH:
         raise HTTPException(status_code=401, detail="请先登录")
     return requested
+
+
+def _require_admin(user_id: str) -> dict:
+    user = user_repository.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="账号不存在")
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return user
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    return forwarded or (request.client.host if request.client else "unknown")
+
+
+def _rate_limit(subject: str, scope: str, limit: int) -> None:
+    allowed, retry_after = rate_limit.check(scope, subject, limit)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="请求过于频繁，请稍后重试",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+def _request_id(request: Request) -> str | None:
+    return getattr(request.state, "request_id", None)
 
 
 def _agent_error_message(error: Exception) -> str:
@@ -124,24 +184,40 @@ def _agent_error_message(error: Exception) -> str:
 
 
 @app.post("/auth/register")
-def register(req: RegisterRequest):
+def register(req: RegisterRequest, request: Request):
     """注册并直接签发 Token。"""
+    ip = _client_ip(request)
+    _rate_limit(f"ip:{ip}", "register", 5)
     try:
         user_id = auth_service.register(req.username, req.password, req.email)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     user = user_repository.get_by_id(user_id)
+    audit_service.record(
+        user_id, "auth.register", "user", user_id,
+        _request_id(request), ip, {"username": req.username},
+    )
     return {"token": auth_service.issue_token(user_id),
             "user": auth_service.public_user(user)}
 
 
 @app.post("/auth/login")
-def login(req: LoginRequest):
+def login(req: LoginRequest, request: Request):
     """账号密码登录。"""
+    ip = _client_ip(request)
+    _rate_limit(f"ip:{ip}", "login", 10)
     try:
         user = auth_service.login(req.username, req.password)
     except PermissionError as e:
+        audit_service.record(
+            None, "auth.login_failed", "user", req.username,
+            _request_id(request), ip, {"reason": str(e)},
+        )
         raise HTTPException(status_code=401, detail=str(e))
+    audit_service.record(
+        user["id"], "auth.login", "user", user["id"],
+        _request_id(request), ip,
+    )
     return {"token": auth_service.issue_token(user["id"]),
             "user": auth_service.public_user(user)}
 
@@ -167,7 +243,9 @@ def root():
         "endpoints": [
             "/chat", "/chat/stream", "/quiz", "/plan", "/questions/next",
             "/submit", "/profile/{user_id}", "/plan/{user_id}", "/kb/search",
-            "/cache/stats", "/health", "/attempts", "/mistakes",
+            "/cache/stats", "/health", "/ready", "/metrics",
+            "/attempts", "/mistakes", "/admin/users", "/admin/overview",
+            "/admin/audit-logs",
         ],
     }
 
@@ -176,6 +254,115 @@ def root():
 def health():
     """健康检查。"""
     return {"status": "ok"}
+
+
+@app.get("/ready")
+def ready():
+    """Readiness probe: database is required; cache may be in fallback mode."""
+    try:
+        query_one("SELECT 1 AS ok")
+    except Exception as error:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "database": "error",
+                     "error": type(error).__name__},
+        )
+    return {
+        "status": "ready",
+        "database": "ok",
+        "cache_backend": cache.backend_name(),
+        "kb_version": cache.kb_version(),
+    }
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+def metrics():
+    """Prometheus text exposition; expose only on the internal network."""
+    return metrics_text()
+
+
+@app.get("/admin/overview")
+def admin_overview(authorization: str | None = Header(default=None)):
+    actor = _resolve_user("", authorization, require_token=True)
+    _require_admin(actor)
+    return {
+        "users": query_one("SELECT COUNT(*) AS total FROM users")["total"],
+        "questions": query_one("SELECT COUNT(*) AS total FROM questions")["total"],
+        "conversations": query_one("SELECT COUNT(*) AS total FROM conversations")["total"],
+        "attempts": query_one("SELECT COUNT(*) AS total FROM practice_attempts")["total"],
+        "cache": cache.stats(),
+    }
+
+
+@app.get("/admin/users")
+def admin_users(q: str = "", limit: int = 20, offset: int = 0,
+                authorization: str | None = Header(default=None)):
+    actor = _resolve_user("", authorization, require_token=True)
+    _require_admin(actor)
+    return {
+        "items": user_repository.list_all(min(max(limit, 1), 100), max(offset, 0), q),
+        "limit": min(max(limit, 1), 100),
+        "offset": max(offset, 0),
+    }
+
+
+@app.get("/admin/audit-logs")
+def admin_audit_logs(limit: int = 20, offset: int = 0,
+                     authorization: str | None = Header(default=None)):
+    actor = _resolve_user("", authorization, require_token=True)
+    _require_admin(actor)
+    page_size = min(max(limit, 1), 100)
+    page_offset = max(offset, 0)
+    return {
+        "items": audit_repository.list_all(page_size, page_offset),
+        "total": audit_repository.count_all(),
+        "limit": page_size,
+        "offset": page_offset,
+    }
+
+
+@app.patch("/admin/users/{user_id}/status")
+def admin_set_user_status(user_id: str, req: UserStatusRequest, request: Request,
+                          authorization: str | None = Header(default=None)):
+    actor = _resolve_user("", authorization, require_token=True)
+    _require_admin(actor)
+    if user_id == actor:
+        raise HTTPException(status_code=400, detail="不能修改自己的账号状态")
+    target = user_repository.get_by_id(user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if target.get("role") == "admin" and req.status == "disabled":
+        if user_repository.count_active_admins() <= 1:
+            raise HTTPException(status_code=400, detail="不能禁用最后一个管理员")
+    user_repository.set_status(user_id, req.status)
+    audit_service.record(
+        actor, "admin.user_status", "user", user_id,
+        _request_id(request), _client_ip(request),
+        {"from": target.get("status"), "to": req.status},
+    )
+    return {"id": user_id, "status": req.status}
+
+
+@app.patch("/admin/users/{user_id}/role")
+def admin_set_user_role(user_id: str, req: UserRoleRequest, request: Request,
+                        authorization: str | None = Header(default=None)):
+    actor = _resolve_user("", authorization, require_token=True)
+    _require_admin(actor)
+    if user_id == actor:
+        raise HTTPException(status_code=400, detail="不能修改自己的角色")
+    target = user_repository.get_by_id(user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if target.get("role") == "admin" and req.role != "admin":
+        if user_repository.count_active_admins() <= 1:
+            raise HTTPException(status_code=400, detail="不能降级最后一个管理员")
+    user_repository.set_role(user_id, req.role)
+    audit_service.record(
+        actor, "admin.user_role", "user", user_id,
+        _request_id(request), _client_ip(request),
+        {"from": target.get("role"), "to": req.role},
+    )
+    return {"id": user_id, "role": req.role}
 
 
 @app.get("/conversations")
@@ -219,7 +406,8 @@ def delete_conversation(conversation_id: int, authorization: str | None = Header
 def chat(req: ChatRequest, authorization: str | None = Header(default=None)):
     """路由入口：一句话交给路由 Agent 决定走答疑 / 出题 / 批改 / 规划。"""
     try:
-        user_id = _resolve_user(req.user_id, authorization, require_token=req.conversation_id is not None)
+        user_id = _resolve_user(req.user_id, authorization, require_token=True)
+        _rate_limit(user_id, "chat", RATE_LIMIT_CHAT_PER_MIN)
         memory_key = user_id
         if req.conversation_id is not None:
             memory_key = conversation_service.restore_memory(req.conversation_id, user_id)
@@ -244,7 +432,8 @@ def _sse(data: dict) -> str:
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest, authorization: str | None = Header(default=None)):
     """流式答疑：SSE 输出 token、元信息、来源和最终结果。"""
-    user_id = _resolve_user(req.user_id, authorization, require_token=req.conversation_id is not None)
+    user_id = _resolve_user(req.user_id, authorization, require_token=True)
+    _rate_limit(user_id, "chat", RATE_LIMIT_CHAT_PER_MIN)
     memory_key = user_id
     if req.conversation_id is not None:
         try:
@@ -277,11 +466,13 @@ async def chat_stream(req: ChatRequest, authorization: str | None = Header(defau
 
 
 @app.post("/quiz")
-def quiz(req: QuizRequest):
+def quiz(req: QuizRequest, authorization: str | None = Header(default=None)):
     """直接出题：返回本次新命制并入库的题目（不含答案）。"""
     try:
+        user_id = _resolve_user(req.user_id, authorization, require_token=True)
+        _rate_limit(user_id, "quiz", RATE_LIMIT_AGENT_PER_MIN)
         before = query_one("SELECT COALESCE(MAX(id), 0) AS m FROM questions")["m"]
-        r = generate_quiz(req.user_id, req.knowledge_point)
+        r = generate_quiz(user_id, req.knowledge_point)
     except Exception as e:
         print(f"[quiz] {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=_agent_error_message(e))
@@ -294,10 +485,12 @@ def quiz(req: QuizRequest):
 
 
 @app.post("/plan")
-def plan(req: PlanRequest):
+def plan(req: PlanRequest, authorization: str | None = Header(default=None)):
     """直接生成复习计划。"""
     try:
-        r = make_plan(req.user_id, req.days)
+        user_id = _resolve_user(req.user_id, authorization, require_token=True)
+        _rate_limit(user_id, "plan", RATE_LIMIT_AGENT_PER_MIN)
+        r = make_plan(user_id, req.days)
     except Exception as e:
         print(f"[plan] {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=_agent_error_message(e))
@@ -311,8 +504,11 @@ def plan(req: PlanRequest):
 
 @app.get("/questions/next")
 def next_question(user_id: str = "default", question_type: str = "",
-                  knowledge_point: str = ""):
+                  knowledge_point: str = "",
+                  authorization: str | None = Header(default=None)):
     """取一道该用户没做过的题（不返回答案与解析）。"""
+    user_id = _resolve_user(user_id, authorization, require_token=True)
+    _rate_limit(user_id, "question_next", RATE_LIMIT_SEARCH_PER_MIN)
     sql = """SELECT q.* FROM questions q
              LEFT JOIN answer_records a ON a.question_id = q.id AND a.user_id = %s
              WHERE a.id IS NULL"""
@@ -336,7 +532,8 @@ def next_question(user_id: str = "default", question_type: str = "",
 @app.post("/submit")
 def submit(req: SubmitRequest, authorization: str | None = Header(default=None)):
     """提交作答：选择题/填空题走精确判分，解答题走批改 Agent。"""
-    user_id = _resolve_user(req.user_id, authorization)
+    user_id = _resolve_user(req.user_id, authorization, require_token=True)
+    _rate_limit(user_id, "submit", RATE_LIMIT_SUBMIT_PER_MIN)
     q = query_one("SELECT * FROM questions WHERE id=%s", (req.question_id,))
     if not q:
         raise HTTPException(status_code=404, detail=f"题目 {req.question_id} 不存在")
@@ -446,14 +643,19 @@ def latest_plan(user_id: str, include_items: bool = False,
 
 
 @app.get("/cache/stats")
-def cache_stats():
+def cache_stats(authorization: str | None = Header(default=None)):
     """缓存后端与命中率。backend 是 memory 就说明 Redis 没连上、已自动降级。"""
+    actor = _resolve_user("", authorization, require_token=True)
+    _require_admin(actor)
     return cache.stats()
 
 
 @app.get("/kb/search")
-def kb_search(q: str, top_k: int = 4):
+def kb_search(q: str, top_k: int = 4,
+              authorization: str | None = Header(default=None)):
     """混合检索知识库（向量 + BM25，RRF 融合）。"""
+    user_id = _resolve_user("", authorization, require_token=True)
+    _rate_limit(user_id, "kb_search", RATE_LIMIT_SEARCH_PER_MIN)
     hits = cached_hybrid_search(q, top_k=top_k)
     return {"query": q, "count": len(hits), "hits": hits}
 

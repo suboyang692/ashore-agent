@@ -57,6 +57,24 @@ export type MasteryItem = {
   knowledge_point: string; subject: string; total_count: number; wrong_count: number; mastery: number;
 };
 export type Profile = { user_id: string; items: MasteryItem[]; weak_points: string[] };
+export type AdminOverview = {
+  users: number; questions: number; conversations: number; attempts: number;
+  cache: {
+    backend: string; hit_rate: number; keys: number;
+    kb_version: number; sessions: number;
+  };
+};
+export type AdminUser = {
+  id: string; username: string; email: string | null;
+  role: "student" | "admin"; status: "active" | "disabled";
+  created_at: string; last_login_at: string | null;
+};
+export type AuditLog = {
+  id: number; actor_id: string | null; actor_name: string | null; action: string;
+  target_type: string | null; target_id: string | null;
+  request_id: string | null; ip: string | null;
+  detail: Record<string, unknown> | null; created_at: string;
+};
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -95,6 +113,10 @@ export function authenticate(mode: "login" | "register", username: string, passw
     method: "POST",
     body: JSON.stringify({ username, password }),
   });
+}
+
+export function getMe(token: string) {
+  return request<User>("/auth/me", {}, token);
 }
 
 export function ask(userId: string, message: string, token: string) {
@@ -204,4 +226,40 @@ export function completePlanItem(itemId: number, userId: string, token: string) 
 
 export function getProfile(userId: string, token: string) {
   return request<Profile>(`/profile/${encodeURIComponent(userId)}`, {}, token);
+}
+
+export function getAdminOverview(token: string) {
+  return request<AdminOverview>("/admin/overview", {}, token);
+}
+
+export function getAdminUsers(query: string, offset: number, limit: number, token: string) {
+  const params = new URLSearchParams({
+    q: query.trim(), limit: String(limit), offset: String(offset),
+  });
+  return request<{ items: AdminUser[]; limit: number; offset: number }>(
+    `/admin/users?${params}`, {}, token,
+  );
+}
+
+export function getAdminAuditLogs(offset: number, limit: number, token: string) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return request<{ items: AuditLog[]; total: number; limit: number; offset: number }>(
+    `/admin/audit-logs?${params}`, {}, token,
+  );
+}
+
+export function setAdminUserStatus(userId: string, status: AdminUser["status"], token: string) {
+  return request<{ id: string; status: string }>(
+    `/admin/users/${encodeURIComponent(userId)}/status`,
+    { method: "PATCH", body: JSON.stringify({ status }) },
+    token,
+  );
+}
+
+export function setAdminUserRole(userId: string, role: AdminUser["role"], token: string) {
+  return request<{ id: string; role: string }>(
+    `/admin/users/${encodeURIComponent(userId)}/role`,
+    { method: "PATCH", body: JSON.stringify({ role }) },
+    token,
+  );
 }

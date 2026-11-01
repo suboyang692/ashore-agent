@@ -239,3 +239,20 @@ CREATE TABLE IF NOT EXISTS jobs (
   CONSTRAINT fk_jobs_user FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB COMMENT='异步任务';
 
+-- 12. 审计日志：管理员操作、登录与安全事件
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  actor_id VARCHAR(64) NULL,
+  action VARCHAR(64) NOT NULL,
+  target_type VARCHAR(32) NULL,
+  target_id VARCHAR(64) NULL,
+  request_id VARCHAR(64) NULL,
+  ip VARCHAR(64) NULL,
+  detail JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_audit_actor_time (actor_id, created_at),
+  INDEX idx_audit_action_time (action, created_at),
+  INDEX idx_audit_target (target_type, target_id),
+  CONSTRAINT fk_audit_actor FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB COMMENT='审计日志';
+
