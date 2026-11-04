@@ -17,13 +17,68 @@
 | 缓存 | `app/cache.py` | 检索结果缓存 + 多轮会话记忆放 Redis，连不上自动降级为进程内实现；检索缓存用知识库版本号失效，不用会阻塞的 `KEYS` 扫删 |
 | 记忆 | `app/router_agent.py` | 会话超出窗口的那几条不直接丢，先压成滚动摘要，下一轮以 system 消息回到上下文；摘要失败只退化、不清空已有记忆 |
 | 真题 | `app/exam_ocr.py` + `db/import_exam.py` | 真题 PDF 逐页渲染后由视觉模型转成 Markdown + LaTeX（转文本层抽不出公式），保留页码锚点入库；再从转录结果解析出题目写进题库 |
-| 界面 | `app/api.py` + `web/index.html` | 单页操作台：答疑、出题、练习、规划、学情五个面板，纯静态无构建；数学公式用 KaTeX 渲染，加载失败自动退回原文 |
+| 文档入库 | `app/worker.py` + `app/services/document_service.py` | 管理员上传 PDF/Markdown/TXT，SHA-256 去重；Redis + RQ Worker 异步解析、切片、Embedding 并写入 ChromaDB，支持进度、失败重试和版本记录 |
+| 权限与管理 | `app/security.py` + `app/api.py` | JWT 鉴权、学生/管理员 RBAC、用户状态管理、审计日志、接口限流和请求追踪 |
+| 前端 | `frontend/` + `web/index.html` | React + TypeScript 学生端与管理端；保留旧版静态操作台用于兼容 |
 
 ## 技术栈
 
 Python 3.10 · FastAPI · LangGraph · LangChain · Qwen（DashScope，含 qwen-vl 视觉转录）·
-ChromaDB + BM25（RRF 混合检索）· Redis · MySQL · pdfplumber · Docker Compose ·
-GitHub Actions · pytest + Node 测试
+React · TypeScript · JWT · RQ · ChromaDB + BM25（RRF 混合检索）· Redis · MySQL ·
+Nginx · pdfplumber · Docker Compose · GitHub Actions · pytest
+
+## 系统架构
+
+```mermaid
+flowchart LR
+  Browser[React 学生端 / 管理端] --> Nginx[Nginx]
+  Nginx --> API[FastAPI API]
+  API --> Auth[JWT / RBAC / 限流 / 审计]
+  API --> Agents[LangGraph Agents]
+  API --> Services[Service Layer]
+  Services --> Repos[Repository Layer]
+  Repos --> MySQL[(MySQL)]
+  Services --> Redis[(Redis Cache / Queue)]
+  Services --> Chroma[(ChromaDB)]
+  Redis --> Worker[RQ Worker]
+  Worker --> Chroma
+  Worker --> MySQL
+```
+
+## 异步文档入库
+
+```mermaid
+sequenceDiagram
+  participant Admin as 管理员
+  participant API as FastAPI
+  participant DB as MySQL
+  participant Queue as Redis / RQ
+  participant Worker as Worker
+  participant KB as ChromaDB
+
+  Admin->>API: 上传 PDF / Markdown / TXT
+  API->>DB: 写入 documents + document_versions + jobs
+  API->>Queue: enqueue(document_ingest)
+  Worker->>DB: 更新任务进度
+  Worker->>Worker: 解析、切片、Embedding
+  Worker->>KB: upsert 切片与向量
+  Worker->>DB: 写入 document_chunks，任务成功
+  Admin->>API: 轮询文档/任务状态
+```
+
+文档通过 SHA-256 去重；重新入库会创建新版本并替换该文档在向量库中的旧切片。任务失败会保存错误信息并支持手动重试。
+
+## 界面预览
+
+| 答疑 | 练习 |
+|---|---|
+| ![答疑](docs/images/chat.png) | ![练习](docs/images/practice.png) |
+
+| 管理概览 | 文档入库 |
+|---|---|
+| ![管理概览](docs/images/admin-overview.png) | ![文档入库](docs/images/admin-documents.png) |
+
+![异步任务](docs/images/admin-jobs.png)
 
 ## 目录结构
 
