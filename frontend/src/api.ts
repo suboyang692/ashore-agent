@@ -75,6 +75,29 @@ export type AuditLog = {
   request_id: string | null; ip: string | null;
   detail: Record<string, unknown> | null; created_at: string;
 };
+export type DocumentItem = {
+  id: number; owner_id: string | null; title: string; file_name: string;
+  file_hash: string; source_type: string; status: string;
+  error_message: string | null; created_at: string; updated_at: string;
+  version_count: number; chunk_count: number;
+};
+export type DocumentVersion = {
+  id: number; document_id: number; version_no: number; parser_version: string | null;
+  embedding_model: string | null; chunk_strategy: string | null; status: string;
+  error_message: string | null; created_at: string; completed_at: string | null;
+  chunks?: Array<{
+    id: number; chunk_no: number; chapter: string | null;
+    knowledge_point: string | null; page_no: number | null;
+    vector_id: string | null; content_hash: string; preview: string;
+  }>;
+};
+export type JobItem = {
+  id: string; user_id: string | null; job_type: string; status: string;
+  progress: number; payload: Record<string, unknown> | null;
+  result: Record<string, unknown> | null; error_message: string | null;
+  retry_count: number; created_at: string; started_at: string | null;
+  finished_at: string | null;
+};
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -89,7 +112,8 @@ export async function request<T>(path: string, options: RequestInit = {}, token?
     response = await fetch(`/api${path}`, {
       ...options,
       headers: {
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(options.body && !(options.body instanceof FormData)
+          ? { "Content-Type": "application/json" } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...options.headers,
       },
@@ -245,6 +269,47 @@ export function getAdminAuditLogs(offset: number, limit: number, token: string) 
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   return request<{ items: AuditLog[]; total: number; limit: number; offset: number }>(
     `/admin/audit-logs?${params}`, {}, token,
+  );
+}
+
+export function getAdminDocuments(offset: number, limit: number, token: string) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return request<{ items: DocumentItem[]; total: number; limit: number; offset: number }>(
+    `/admin/documents?${params}`, {}, token,
+  );
+}
+
+export function getAdminDocument(id: number, token: string) {
+  return request<{ document: DocumentItem; versions: DocumentVersion[] }>(
+    `/admin/documents/${id}`, {}, token,
+  );
+}
+
+export function uploadAdminDocument(file: File, title: string, token: string) {
+  const form = new FormData();
+  form.append("file", file);
+  if (title.trim()) form.append("title", title.trim());
+  return request<{ document: DocumentItem; job_id: string | null; transport: string | null }>(
+    "/admin/documents/upload", { method: "POST", body: form }, token,
+  );
+}
+
+export function reindexAdminDocument(id: number, token: string) {
+  return request<{ document: DocumentItem; job_id: string; transport: string }>(
+    `/admin/documents/${id}/reindex`, { method: "POST" }, token,
+  );
+}
+
+export function getAdminJobs(offset: number, limit: number, token: string) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return request<{ items: JobItem[]; total: number; limit: number; offset: number }>(
+    `/admin/jobs?${params}`, {}, token,
+  );
+}
+
+export function retryAdminJob(id: string, token: string) {
+  return request<{ job: JobItem; transport: string }>(
+    `/admin/jobs/${encodeURIComponent(id)}/retry`, { method: "POST" }, token,
   );
 }
 

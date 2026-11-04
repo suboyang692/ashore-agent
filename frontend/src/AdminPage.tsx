@@ -8,6 +8,8 @@ import {
   setAdminUserRole, setAdminUserStatus,
   type AdminOverview, type AdminUser, type AuditLog, type Session,
 } from "./api";
+import AdminDocuments from "./AdminDocuments";
+import AdminJobs from "./AdminJobs";
 import { formatTime } from "./format";
 import PageHeader from "./PageHeader";
 
@@ -34,7 +36,7 @@ function actionText(action: string) {
 }
 
 export default function AdminPage({ session }: { session: Session }) {
-  const [tab, setTab] = useState<"overview" | "users">("overview");
+  const [tab, setTab] = useState<"overview" | "users" | "documents" | "jobs">("overview");
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [audits, setAudits] = useState<AuditLog[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -120,17 +122,21 @@ export default function AdminPage({ session }: { session: Session }) {
   }
 
   return <section className="workspace-page">
-    <PageHeader title="管理" description="查看运行状态、用户权限与最近操作。" action={
+    <PageHeader title="管理" description="查看运行状态、用户权限、知识库任务与最近操作。" action={
+      tab === "overview" || tab === "users" ?
       <button className="secondary-button" type="button"
         onClick={() => void (tab === "overview" ? loadOverview() : loadUsers())}
         disabled={loading || usersLoading}>
         <RefreshCw size={16} />刷新
       </button>
+      : undefined
     } />
     <div className="page-scroll">
       <div className="segmented" role="group" aria-label="管理视图">
         <button type="button" className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>概览</button>
         <button type="button" className={tab === "users" ? "active" : ""} onClick={() => { setTab("users"); setError(""); }}>用户</button>
+        <button type="button" className={tab === "documents" ? "active" : ""} onClick={() => { setTab("documents"); setError(""); }}>文档</button>
+        <button type="button" className={tab === "jobs" ? "active" : ""} onClick={() => { setTab("jobs"); setError(""); }}>任务</button>
       </div>
 
       {error ? <div className="notice error-notice" role="alert">{error}</div> : null}
@@ -163,7 +169,7 @@ export default function AdminPage({ session }: { session: Session }) {
             </article>)}
           </div> : <p className="admin-empty">暂无审计记录</p>}
         </section>
-      </> : null : <>
+      </> : null : tab === "users" ? <>
         <form className="admin-search" onSubmit={search}>
           <label htmlFor="admin-user-search">搜索用户</label>
           <div>
@@ -210,7 +216,7 @@ export default function AdminPage({ session }: { session: Session }) {
           <span className="admin-page-number">第 {Math.floor(offset / PAGE_SIZE) + 1} 页</span>
           <button className="secondary-button" type="button" disabled={users.length < PAGE_SIZE || usersLoading} onClick={() => setOffset(value => value + PAGE_SIZE)}>下一页<ChevronRight size={16} /></button>
         </div>
-      </>}
+      </> : tab === "documents" ? <AdminDocuments session={session} /> : <AdminJobs session={session} />}
     </div>
   </section>;
 }

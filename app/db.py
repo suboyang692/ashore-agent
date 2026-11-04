@@ -44,3 +44,13 @@ def execute(sql, args=None):
     with conn_ctx() as conn, conn.cursor() as cur:
         cur.execute(sql, args or ())
         return cur.lastrowid or cur.rowcount
+
+
+def execute_many(sql, args_list):
+    """批量执行同一条 SQL，返回受影响行数。"""
+    rows = list(args_list or [])
+    if not rows:
+        return 0
+    with conn_ctx() as conn, conn.cursor() as cur:
+        cur.executemany(sql, rows)
+        return cur.rowcount

@@ -26,7 +26,7 @@ import json
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -49,12 +49,13 @@ from app.config import (
     REQUIRE_AUTH,
 )
 from app.observability import configure_logging, http_middleware, metrics_text
-from app.repositories import audit_repository, user_repository
+from app.repositories import audit_repository, job_repository, user_repository
 from app.security import decode_token
 from app.services import (
     audit_service,
     auth_service,
     conversation_service,
+    document_service,
     plan_service,
     practice_service,
 )
@@ -245,7 +246,7 @@ def root():
             "/submit", "/profile/{user_id}", "/plan/{user_id}", "/kb/search",
             "/cache/stats", "/health", "/ready", "/metrics",
             "/attempts", "/mistakes", "/admin/users", "/admin/overview",
-            "/admin/audit-logs",
+            "/admin/audit-logs", "/admin/documents", "/admin/jobs",
         ],
     }
 
@@ -319,6 +320,110 @@ def admin_audit_logs(limit: int = 20, offset: int = 0,
         "limit": page_size,
         "offset": page_offset,
     }
+
+
+@app.post("/admin/documents/upload")
+async def admin_upload_document(
+    request: Request,
+    file: UploadFile = File(...),
+    title: str = Form(default=""),
+    authorization: str | None = Header(default=None),
+):
+    actor = _resolve_user("", authorization, require_token=True)
+    _require_admin(actor)
+    content = await file.read()
+    try:
+        result = document_service.upload(actor, file.filename or "", content, title)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    audit_service.record(
+        actor, "admin.document_upload", "document",
+        str(result["document"]["id"]), _request_id(request), _client_ip(request),
+        {"file_name": file.filename, "duplicate": result.get("duplicate", False)},
+    )
+    return result
+
+
+@app.get("/admin/documents")
+def admin_documents(limit: int = 20, offset: int = 0,
+                    authorization: str | None = Header(default=None)):
+    actor = _resolve_user("", authorization, require_token=True)
+    _require_admin(actor)
+    page_size = min(max(limit, 1), 100)
+    return document_service.list_documents(page_size, max(offset, 0))
+
+
+@app.get("/admin/documents/{document_id}")
+def admin_document_detail(document_id: int,
+                          authorization: str | None = Header(default=None)):
+    actor = _resolve_user("", authorization, require_token=True)
+    _require_admin(actor)
+    try:
+        return document_service.detail(document_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+
+
+@app.post("/admin/documents/{document_id}/reindex")
+def admin_reindex_document(document_id: int, request: Request,
+                           authorization: str | None = Header(default=None)):
+    actor = _resolve_user("", authorization, require_token=True)
+    _require_admin(actor)
+    try:
+        result = document_service.reindex(document_id, actor)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    audit_service.record(
+        actor, "admin.document_reindex", "document", str(document_id),
+        _request_id(request), _client_ip(request),
+        {"job_id": result.get("job_id")},
+    )
+    return result
+
+
+@app.get("/admin/jobs")
+def admin_jobs(status: str = "", limit: int = 20, offset: int = 0,
+               authorization: str | None = Header(default=None)):
+    actor = _resolve_user("", authorization, require_token=True)
+    _require_admin(actor)
+    page_size = min(max(limit, 1), 100)
+    page_offset = max(offset, 0)
+    return {
+        "items": job_repository.list_all(status, page_size, page_offset),
+        "total": job_repository.count_all(status),
+        "limit": page_size,
+        "offset": page_offset,
+    }
+
+
+@app.get("/admin/jobs/{job_id}")
+def admin_job_detail(job_id: str, authorization: str | None = Header(default=None)):
+    actor = _resolve_user("", authorization, require_token=True)
+    _require_admin(actor)
+    job = job_repository.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return job
+
+
+@app.post("/admin/jobs/{job_id}/retry")
+def admin_retry_job(job_id: str, request: Request,
+                    authorization: str | None = Header(default=None)):
+    actor = _resolve_user("", authorization, require_token=True)
+    _require_admin(actor)
+    try:
+        result = document_service.retry_job(job_id, actor)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    audit_service.record(
+        actor, "admin.job_retry", "job", job_id,
+        _request_id(request), _client_ip(request),
+    )
+    return result
 
 
 @app.patch("/admin/users/{user_id}/status")

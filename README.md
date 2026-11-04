@@ -87,8 +87,8 @@ ashore/
 | `conversations`、`conversation_messages` | 长期会话与消息记录；Redis 承担短期会话缓存 |
 | `practice_attempts`、`mistake_records` | 作答尝试与错因明细；现有答题流程同时保留旧表写入 |
 | `review_plan_items` | 可逐项完成的复习任务 |
-| `documents`、`document_versions`、`document_chunks` | 文档、版本、切片元数据；尚未接入现有入库流程 |
-| `jobs` | 异步任务表；尚未接入任务执行器 |
+| `documents`、`document_versions`、`document_chunks` | 上传文档、版本与切片元数据；管理端上传后异步解析入库 |
+| `jobs` | 文档解析/入库异步任务；支持进度、失败重试与管理端轮询 |
 | `audit_logs` | 管理员操作、登录成功/失败与安全事件审计 |
 
 业务接口默认强制 Bearer Token，登录用户只能访问自己的数据，管理员可跨用户查询。
@@ -96,6 +96,7 @@ ashore/
 `audit_logs`。`/metrics` 提供 Prometheus 文本指标，`/ready` 检查数据库与缓存就绪状态。
 `frontend/` 已覆盖登录、答疑、练习、错题、规划和学情；管理员登录后会额外看到
 `/admin` 入口，可查看运行概览、最近审计和用户列表，并调整用户角色与状态。
+管理端还提供文档上传、重新入库、异步任务进度和失败重试。
 
 ## 快速开始
 
@@ -170,6 +171,17 @@ python -m app.api
 #   接口文档  http://127.0.0.1:8000/docs
 #   就绪检查  http://127.0.0.1:8000/ready
 #   指标      http://127.0.0.1:8000/metrics
+```
+
+本地没有 Redis/RQ Worker 时，文档任务会自动降级为 API 进程内线程执行；生产环境由
+`worker` 服务消费 Redis 队列：
+
+```powershell
+# Docker 生产栈会同时启动 app、worker、mysql、redis、web
+docker compose -f docker-compose.prod.yml up -d --build
+
+# 单独看 Worker 日志
+docker compose -f docker-compose.prod.yml logs -f worker
 ```
 
 ## 答疑答案块

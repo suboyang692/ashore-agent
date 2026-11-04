@@ -38,3 +38,8 @@ REDIS_TIMEOUT = float(os.getenv("REDIS_TIMEOUT", "0.3"))   # 秒；探测不能�
 CACHE_TTL = int(os.getenv("CACHE_TTL", "3600"))            # 检索结果缓存 1 小时
 SESSION_TTL = int(os.getenv("SESSION_TTL", "86400"))       # 会话记忆 1 天
 SESSION_MAX = int(os.getenv("SESSION_MAX", "20"))          # 每个用户最多保留多少条消息
+
+# 文档上传与异步任务
+UPLOAD_DIR = BASE_DIR / "data" / "uploads"
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "20"))
+WORKER_QUEUE = os.getenv("WORKER_QUEUE", "ashore")
